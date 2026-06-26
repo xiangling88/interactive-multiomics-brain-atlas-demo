@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Interactive Multi-omics Brain Atlas Demo</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Interactive Multi-omics Brain Atlas Demo</h1>
+      <p>Static blind-review browser for downsampled RNA + ATAC views.</p>
+    </div>
+    <nav id="module-nav" class="module-nav"></nav>
+  </header>
+
+  <main class="shell">
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>Controls</h2>
+        <div id="atlas-controls" class="control-grid">
+          <label>Color by
+            <select id="color-by"></select>
+          </label>
+          <label>Feature type
+            <select id="feature-type">
+              <option value="rna">RNA</option>
+              <option value="atac">ATAC</option>
+            </select>
+          </label>
+          <label>Feature
+            <select id="feature-select"></select>
+          </label>
+          <label>Search gene
+            <input id="feature-search" type="search" placeholder="Search feature">
+          </label>
+          <label>Point size
+            <input id="point-size" type="range" min="2" max="9" step="1" value="4">
+          </label>
+          <label>Opacity
+            <input id="point-opacity" type="range" min="0.2" max="1" step="0.05" value="0.75">
+          </label>
+          <button id="reset-view" type="button">Reset view</button>
+        </div>
+        <div id="scarlink-controls" class="control-grid hidden">
+          <label>Example gene
+            <select id="scarlink-gene"></select>
+          </label>
+          <button id="scarlink-load" type="button">Load example</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Markers</h2>
+        <div id="markers-panel" class="marker-panel"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Notes</h2>
+        <div id="module-note" class="note-box"></div>
+      </section>
+    </aside>
+
+    <section class="content">
+      <section class="panel hero-panel">
+        <div class="panel-head">
+          <div>
+            <h2 id="view-title">Whole Brain</h2>
+            <p id="view-subtitle">Loading demo data...</p>
+          </div>
+        </div>
+        <div id="plot" class="plot"></div>
+        <div id="scarlink-layout" class="hidden">
+          <div class="scarlink-grid">
+            <div class="panel inner-panel">
+              <h3>Circle plot</h3>
+              <div id="scarlink-circle" class="plot small-plot"></div>
+            </div>
+            <div class="panel inner-panel">
+              <h3>Boxplot</h3>
+              <div id="scarlink-boxplot" class="plot small-plot"></div>
+            </div>
+          </div>
+          <div class="panel inner-panel">
+            <h3>Links table</h3>
+            <div class="table-wrap">
+              <table>
+                <thead id="scarlink-head"></thead>
+                <tbody id="scarlink-table"></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="scarlink-examples" class="example-grid"></div>
+        </div>
+        <div id="reference-layout" class="hidden"></div>
+      </section>
+
+      <section id="summary-cards" class="summary-grid"></section>
+    </section>
+  </main>
+
+  <footer class="footer">Blind-review static demo. Data are downsampled for interactive visualization.</footer>
+  <script src="app.js"></script>
+</body>
+</html>
