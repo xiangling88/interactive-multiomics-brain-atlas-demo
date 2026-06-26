@@ -10,18 +10,21 @@ const MODULE_LABELS = [
 
 const state = {
   manifest: null,
-  atlasCache: new Map(),
+  moduleCache: new Map(),
+  featureCache: new Map(),
   scarlinkManifest: null,
   scarlinkCache: new Map(),
   currentModule: "whole_brain",
   currentFeatureType: "rna",
   currentFeature: null,
-  colorBy: "subtype",
+  currentColorBy: "subtype",
+  currentScarlinkGene: null,
+  currentScarlinkDisease: null,
 };
 
 const palette = [
-  "#1f77b4", "#e07a5f", "#81b29a", "#c1121f", "#6d597a", "#457b9d", "#2a9d8f",
-  "#8d99ae", "#ef476f", "#bc6c25", "#264653", "#f4a261", "#7f5539", "#588157",
+  "#8f2d2a", "#d16f5b", "#bfa239", "#3c7d67", "#4f8797", "#7a6eb4", "#9f5378",
+  "#cb8b2f", "#4d5a68", "#87915b", "#ba5b44", "#6b89c6", "#ad6b92", "#597b80", "#9a8f7a",
 ];
 
 function getJSON(path) {
@@ -31,207 +34,273 @@ function getJSON(path) {
   });
 }
 
-function setText(id, text) {
-  document.getElementById(id).textContent = text;
+function escHtml(x) {
+  return String(x ?? "").replace(/[&<>"']/g, (s) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[s]));
 }
 
-function escHtml(x) {
-  return String(x ?? "").replace(/[&<>"']/g, (s) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[s]));
+function setText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
 }
 
 function renderNav() {
   const nav = document.getElementById("module-nav");
-  nav.innerHTML = MODULE_LABELS.map(([key, label]) =>
-    `<button data-module="${key}" class="${state.currentModule === key ? "active" : ""}">${label}</button>`
-  ).join("");
-  nav.querySelectorAll("button").forEach((btn) => {
-    btn.addEventListener("click", () => switchModule(btn.dataset.module));
-  });
+  nav.innerHTML = MODULE_LABELS.map(([key, label]) => `<button data-module="${key}" class="${state.currentModule === key ? "active" : ""}">${label}</button>`).join("");
+  nav.querySelectorAll("button").forEach((btn) => btn.addEventListener("click", () => switchModule(btn.dataset.module)));
 }
 
-async function loadAtlasModule(moduleKey) {
-  if (state.atlasCache.has(moduleKey)) return state.atlasCache.get(moduleKey);
-  const base = `data/${moduleKey}`;
-  const payload = await Promise.all([
-    getJSON(`${base}/cells.json`),
-    getJSON(`${base}/categories.json`),
-    getJSON(`${base}/metadata_summary.json`),
-    getJSON(`${base}/rna_features.json`),
-    getJSON(`${base}/atac_features.json`),
-    getJSON(`${base}/markers.json`),
-  ]);
-  const out = {
-    cells: payload[0],
-    categories: payload[1],
-    summary: payload[2],
-    rna: payload[3],
-    atac: payload[4],
-    markers: payload[5],
-  };
-  state.atlasCache.set(moduleKey, out);
-  return out;
+function moduleEntry(moduleKey) {
+  return (state.manifest?.modules || []).find((m) => m.module === moduleKey);
 }
 
-async function loadScarlinkManifest() {
-  if (!state.scarlinkManifest) {
-    state.scarlinkManifest = await getJSON("data/scarlink/scarlink_manifest.json");
-  }
-  return state.scarlinkManifest;
-}
-
-async function loadScarlinkGene(gene) {
-  if (state.scarlinkCache.has(gene)) return state.scarlinkCache.get(gene);
-  const payload = await getJSON(`data/scarlink/${gene}.json`);
-  state.scarlinkCache.set(gene, payload);
-  return payload;
-}
-
-async function loadReference() {
-  const [summary, example] = await Promise.all([
-    getJSON("data/reference_mapping/summary.json"),
-    getJSON("data/reference_mapping/example_mapping.json"),
-  ]);
-  return {summary, example};
-}
-
-function updateControlsForAtlas(data) {
-  document.getElementById("atlas-controls").classList.remove("hidden");
-  document.getElementById("scarlink-controls").classList.add("hidden");
-  const colorBy = document.getElementById("color-by");
-  colorBy.innerHTML = data.categories.available_color_by.map((key) => `<option value="${key}">${key}</option>`).join("");
-  colorBy.value = state.colorBy;
-  const featureType = document.getElementById("feature-type");
-  featureType.value = state.currentFeatureType;
-  populateFeatureSelect(data);
-}
-
-function populateFeatureSelect(data) {
-  const search = document.getElementById("feature-search").value.trim().toUpperCase();
-  const featureBlock = state.currentFeatureType === "atac" ? data.atac.features : data.rna.features;
-  const options = Object.keys(featureBlock).filter((name) => !search || name.toUpperCase().includes(search));
-  const select = document.getElementById("feature-select");
-  select.innerHTML = options.map((name) => `<option value="${name}">${name}</option>`).join("");
-  if (!options.length) {
-    state.currentFeature = null;
-    return;
-  }
-  if (!options.includes(state.currentFeature)) state.currentFeature = options[0];
-  select.value = state.currentFeature;
+function renderSummaryCards(summary, rnaCount, atacCount) {
+  const cards = [
+    ["Exported cells", summary.n_exported_cells],
+    ["Source cells", summary.n_total_source_cells],
+    ["Subtypes", summary.n_subtypes ?? "-"],
+    ["Diseases", summary.n_diseases ?? "-"],
+    ["RNA features", rnaCount],
+    ["ATAC features", atacCount],
+  ];
+  document.getElementById("summary-cards").innerHTML = cards.map(([label, value]) => `<div class="summary-card"><span>${label}</span><strong>${value}</strong></div>`).join("");
 }
 
 function categoricalColors(values) {
   const levels = [...new Set(values)];
   const cmap = new Map(levels.map((level, idx) => [level, palette[idx % palette.length]]));
-  return {
-    colors: values.map((value) => cmap.get(value)),
-    legend: levels.map((level) => ({label: level, color: cmap.get(level)})),
-  };
+  return {colors: values.map((value) => cmap.get(value)), cmap, levels};
 }
 
-function renderSummary(summary, rnaCount, atacCount) {
-  const cards = [
-    ["Exported cells", summary.n_exported_cells],
-    ["Source cells", summary.n_total_source_cells],
-    ["Subtypes", summary.n_subtypes],
-    ["Diseases", summary.n_diseases],
-    ["RNA features", rnaCount],
-    ["ATAC features", atacCount],
-  ];
-  document.getElementById("summary-cards").innerHTML = cards.map(([label, value]) =>
-    `<div class="summary-card"><span>${label}</span><strong>${value}</strong></div>`
-  ).join("");
+function emptyPlot(divId, title, note) {
+  Plotly.react(divId, [{x:[0], y:[0], mode:"markers", marker:{size:0, opacity:0}}], {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "white",
+    margin: {l: 42, r: 18, t: 50, b: 48},
+    xaxis: {visible: false},
+    yaxis: {visible: false},
+    annotations: [{text: `${escHtml(title)}<br><span style="font-size:12px;color:#667085">${escHtml(note)}</span>`, x: .5, y: .55, xref: "paper", yref: "paper", showarrow: false}],
+  }, {responsive: true, displayModeBar: false});
+}
+
+async function loadAtlasModule(moduleKey) {
+  if (state.moduleCache.has(moduleKey)) return state.moduleCache.get(moduleKey);
+  const entry = moduleEntry(moduleKey);
+  const base = `data/${moduleKey}`;
+  const [categories, summary, markers] = await Promise.all([
+    getJSON(`${base}/categories.json`),
+    getJSON(`${base}/metadata_summary.json`),
+    getJSON(`${base}/markers.json`),
+  ]);
+  const cells = [];
+  const parts = entry.cell_parts || summary.cell_parts || [];
+  for (let i = 0; i < parts.length; i++) {
+    setText("load-progress", `Loading cells ${i + 1}/${parts.length}`);
+    const part = await getJSON(parts[i]);
+    cells.push(...part.cells);
+  }
+  const payload = {entry, categories, summary, markers, cells, columns: ["x", "y", ...(entry.display_fields || ["subtype", "disease", "sample", "RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"]).slice(2)]};
+  state.moduleCache.set(moduleKey, payload);
+  setText("load-progress", `${cells.length.toLocaleString()} cells loaded`);
+  return payload;
+}
+
+async function loadFeature(moduleKey, modality, feature) {
+  const cacheKey = `${moduleKey}::${modality}::${feature}`;
+  if (state.featureCache.has(cacheKey)) return state.featureCache.get(cacheKey);
+  const entry = moduleEntry(moduleKey);
+  const path = entry?.feature_files?.[modality]?.[feature];
+  if (!path) return null;
+  setText("load-progress", `Loading ${feature}`);
+  const payload = await getJSON(path);
+  state.featureCache.set(cacheKey, payload);
+  setText("load-progress", `${moduleEntry(moduleKey).n_exported_cells.toLocaleString()} cells loaded`);
+  return payload;
+}
+
+function decodeFeatureValues(feature) {
+  if (!feature) return null;
+  if (feature.encoding === "dense") return feature.values;
+  if (feature.encoding === "quantized") {
+    const scale = Number(feature.scale_max || feature.q99 || 1);
+    return feature.values.map((v) => (Number(v) / 255) * scale);
+  }
+  if (feature.encoding === "sparse") {
+    const out = new Array(feature.length).fill(0);
+    feature.indices.forEach((idx, i) => { out[idx] = feature.values[i]; });
+    return out;
+  }
+  return feature.values || null;
+}
+
+function configureAtlasControls(data) {
+  document.getElementById("atlas-controls").classList.remove("hidden");
+  document.getElementById("scarlink-controls").classList.add("hidden");
+  document.getElementById("atlas-layout").classList.remove("hidden");
+  document.getElementById("scarlink-layout").classList.add("hidden");
+  document.getElementById("reference-layout").classList.add("hidden");
+  const colors = data.categories.available_color_by || ["subtype", "disease", "sample"];
+  const colorBy = document.getElementById("color-by");
+  colorBy.innerHTML = colors.map((x) => `<option value="${x}">${x}</option>`).join("");
+  if (!colors.includes(state.currentColorBy)) state.currentColorBy = colors[0];
+  colorBy.value = state.currentColorBy;
+  populateFeatureSelect(data);
+}
+
+function populateFeatureSelect(data) {
+  const featureType = state.currentFeatureType;
+  const search = document.getElementById("feature-search").value.trim().toUpperCase();
+  const names = (data.entry.features?.[featureType] || []).filter((name) => !search || name.toUpperCase().includes(search));
+  const select = document.getElementById("feature-select");
+  select.innerHTML = `<option value="">None</option>` + names.map((x) => `<option value="${x}">${x}</option>`).join("");
+  if (state.currentFeature && !names.includes(state.currentFeature)) state.currentFeature = null;
+  select.value = state.currentFeature || "";
 }
 
 function renderMarkers(markers) {
-  const panel = document.getElementById("markers-panel");
   const groups = markers.subtype_markers || {};
-  panel.innerHTML = Object.entries(groups).slice(0, 18).map(([label, genes]) => `
+  document.getElementById("markers-panel").innerHTML = Object.entries(groups).slice(0, 22).map(([label, genes]) => `
     <div class="marker-group">
       <strong>${escHtml(label)}</strong>
       <div>${genes.map((gene) => `<span class="marker-chip" data-feature="${escHtml(gene)}">${escHtml(gene)}</span>`).join("")}</div>
     </div>
   `).join("");
-  panel.querySelectorAll(".marker-chip").forEach((chip) => {
-    chip.addEventListener("click", async () => {
-      state.currentFeatureType = "rna";
-      state.currentFeature = chip.dataset.feature;
-      const data = await loadAtlasModule(state.currentModule);
-      updateControlsForAtlas(data);
-      renderAtlas(data);
-    });
-  });
+  document.querySelectorAll(".marker-chip").forEach((chip) => chip.addEventListener("click", async () => {
+    state.currentFeatureType = "rna";
+    state.currentFeature = chip.dataset.feature;
+    const data = await loadAtlasModule(state.currentModule);
+    populateFeatureSelect(data);
+    await renderAtlasModule(data);
+  }));
 }
 
-function renderAtlas(data) {
-  const cells = data.cells.cells;
+async function renderAtlasModule(data) {
+  setText("view-title", MODULE_LABELS.find(([k]) => k === state.currentModule)?.[1] || data.entry.label);
+  setText("view-subtitle", `${data.entry.n_exported_cells.toLocaleString()} exported cells from ${data.entry.n_total_source_cells.toLocaleString()} source cells.`);
+  document.getElementById("module-note").textContent = (data.summary.warnings || []).join(" ") || "Chunked UMAP cells and lazy-loaded selected features.";
+  renderSummaryCards(data.summary, (data.entry.features?.rna || []).length, (data.entry.features?.atac || []).length);
+  renderMarkers(data.markers);
+
+  const cells = data.cells;
   const x = cells.map((row) => row[0]);
   const y = cells.map((row) => row[1]);
-  const subtype = cells.map((row) => row[2]);
-  const disease = cells.map((row) => row[3]);
-  const sample = cells.map((row) => row[4]);
-  const dataset = cells.map((row) => row[5]);
+  const fieldIndex = {subtype: 2, disease: 3, sample: 4, RL6: 5, RL_4: 6, RL3_2: 7, RL3_1: 8, RL_3: 9, RL_2: 10};
   const pointSize = Number(document.getElementById("point-size").value);
   const opacity = Number(document.getElementById("point-opacity").value);
-  const featureBlock = state.currentFeatureType === "atac" ? data.atac.features : data.rna.features;
-  const selectedFeature = state.currentFeature && featureBlock[state.currentFeature] ? featureBlock[state.currentFeature].values : null;
-
-  let color;
+  let markerColor;
   let showscale = false;
-  let legend = [];
-  if (state.colorBy === "selected_feature" && selectedFeature) {
-    color = selectedFeature;
+  let hoverValues = null;
+  let colorLegend = null;
+  let detailFeature = null;
+
+  if (state.currentColorBy === "selected_feature" && state.currentFeature) {
+    detailFeature = await loadFeature(state.currentModule, state.currentFeatureType, state.currentFeature);
+    hoverValues = decodeFeatureValues(detailFeature);
+    markerColor = hoverValues;
     showscale = true;
   } else {
-    const mapping = {
-      subtype,
-      disease,
-      sample,
-      dataset,
-    };
-    const mapped = categoricalColors(mapping[state.colorBy] || subtype);
-    color = mapped.colors;
-    legend = mapped.legend;
+    const vals = cells.map((row) => row[fieldIndex[state.currentColorBy] ?? 2]);
+    colorLegend = categoricalColors(vals);
+    markerColor = colorLegend.colors;
   }
 
-  Plotly.newPlot("plot", [{
-    type: "scattergl",
-    mode: "markers",
-    x,
-    y,
+  const hoverText = cells.map((row, idx) => {
+    const parts = [`Subtype: ${escHtml(row[2])}`, `Disease: ${escHtml(row[3])}`, `Sample: ${escHtml(row[4])}`];
+    ["RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"].forEach((field, offset) => {
+      const v = row[5 + offset];
+      if (v && v !== "NA") parts.push(`${field}: ${escHtml(v)}`);
+    });
+    if (hoverValues) parts.push(`${escHtml(state.currentFeature)}: ${Number(hoverValues[idx]).toFixed(4)}`);
+    return parts.join("<br>");
+  });
+
+  Plotly.react("umap-plot", [{
+    x, y, type: "scattergl", mode: "markers",
     marker: {
       size: pointSize,
       opacity,
-      color,
-      colorscale: showscale ? "Viridis" : undefined,
+      color: markerColor,
+      colorscale: showscale ? (state.currentFeatureType === "rna" ? "Reds" : "Tealgrn") : undefined,
+      colorbar: showscale ? {title: state.currentFeature} : undefined,
       showscale,
       line: {width: 0},
-      colorbar: showscale ? {title: state.currentFeature} : undefined,
     },
-    text: cells.map((row, idx) =>
-      `Subtype: ${escHtml(row[2])}<br>Disease: ${escHtml(row[3])}<br>Sample: ${escHtml(row[4])}<br>Dataset: ${escHtml(row[5])}${selectedFeature ? `<br>${escHtml(state.currentFeature)}: ${selectedFeature[idx]}` : ""}`
-    ),
+    text: hoverText,
     hovertemplate: "%{text}<extra></extra>",
     showlegend: false,
   }], {
     paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(255,255,255,.92)",
-    margin: {l: 36, r: 20, t: 22, b: 42},
-    xaxis: {title: "UMAP1", zeroline: false, gridcolor: "rgba(217,209,194,.45)"},
-    yaxis: {title: "UMAP2", zeroline: false, gridcolor: "rgba(217,209,194,.45)"},
-    annotations: legend.slice(0, 18).map((item, idx) => ({
-      xref: "paper", yref: "paper", x: 1.01, y: 1 - idx * 0.05,
-      text: `<span style="color:${item.color}">●</span> ${escHtml(item.label)}`,
-      showarrow: false, align: "left",
-    })),
+    plot_bgcolor: "white",
+    autosize: true,
+    margin: {l: 48, r: 22, t: 22, b: 44},
+    xaxis: {title: "UMAP 1", zeroline: false, showgrid: false},
+    yaxis: {title: "UMAP 2", zeroline: false, showgrid: false, scaleanchor: "x", scaleratio: 1},
+    annotations: colorLegend ? colorLegend.levels.slice(0, 18).map((label, idx) => ({xref: "paper", yref: "paper", x: 1.02, y: 1 - idx * 0.045, text: `<span style="color:${colorLegend.cmap.get(label)}">●</span> ${escHtml(label)}`, showarrow: false, align: "left"})) : [],
   }, {responsive: true, displayModeBar: false});
 
-  setText("view-title", MODULE_LABELS.find(([key]) => key === state.currentModule)?.[1] || state.currentModule);
-  setText("view-subtitle", data.summary.blind_review_note);
-  document.getElementById("module-note").textContent = (data.summary.warnings || []).join(" ") || "Downsampled static view with RNA and ATAC demo features.";
-  renderSummary(data.summary, Object.keys(data.rna.features).length, Object.keys(data.atac.features).length);
-  renderMarkers(data.markers);
+  setText("umap-caption", state.currentColorBy === "selected_feature" ? `${state.currentFeatureType.toUpperCase()} feature overlay` : `${state.currentColorBy} categories`);
+
+  if (state.currentFeature) {
+    const feature = detailFeature || await loadFeature(state.currentModule, state.currentFeatureType, state.currentFeature);
+    renderViolin(feature, data.categories.subtype_label || "Subtype");
+  } else {
+    renderRelationBar(data);
+  }
+}
+
+function renderRelationBar(data) {
+  setText("detail-title", "Subtype x disease relationship");
+  setText("detail-caption", "No feature selected. Showing exported subtype counts.");
+  const counts = Object.entries(data.summary.source_subtype_counts || {}).slice(0, 18);
+  Plotly.react("detail-plot", [{type: "bar", x: counts.map((x) => x[0]), y: counts.map((x) => x[1]), marker: {color: counts.map((_, i) => palette[i % palette.length])}}], {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "white",
+    margin: {l: 50, r: 20, t: 28, b: 150},
+    xaxis: {tickangle: -35, automargin: true},
+    yaxis: {title: "Cells", gridcolor: "rgba(217,224,232,.65)"},
+    showlegend: false,
+  }, {responsive: true, displayModeBar: false});
+}
+
+function renderViolin(feature, subtypeLabel) {
+  const groupBy = document.getElementById("violin-group-by").value;
+  const payload = feature?.violin?.[groupBy];
+  if (!payload || !payload.traces?.length) {
+    emptyPlot("detail-plot", "No violin data", "Selected feature has no grouped values.");
+    return;
+  }
+  setText("detail-title", `${feature.type.toUpperCase()} violin`);
+  setText("detail-caption", `${feature.label} grouped by ${groupBy}`);
+  const traces = payload.traces.slice(0, 32).map((row, idx) => ({
+    type: "violin",
+    y: row.sample,
+    name: row.name,
+    box: {visible: true},
+    meanline: {visible: true},
+    points: row.sample.length <= 80 ? "all" : false,
+    marker: {size: 3, opacity: .35, color: palette[idx % palette.length]},
+    line: {color: palette[idx % palette.length]},
+  }));
+  Plotly.react("detail-plot", traces, {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "white",
+    margin: {l: 58, r: 20, t: 24, b: 150},
+    xaxis: {tickangle: -35, automargin: true},
+    yaxis: {title: feature.type === "rna" ? "RNA expression" : "ATAC accessibility", gridcolor: "rgba(217,224,232,.65)"},
+    showlegend: false,
+  }, {responsive: true, displayModeBar: false});
+}
+
+async function loadScarlinkManifest() {
+  if (!state.scarlinkManifest) state.scarlinkManifest = await getJSON("data/scarlink/scarlink_manifest.json");
+  return state.scarlinkManifest;
+}
+
+async function loadScarlinkPayload(gene, diseaseSlug) {
+  const cacheKey = `${gene}::${diseaseSlug}`;
+  if (state.scarlinkCache.has(cacheKey)) return state.scarlinkCache.get(cacheKey);
+  const payload = await getJSON(`data/scarlink/${gene}/${diseaseSlug}.json`);
+  state.scarlinkCache.set(cacheKey, payload);
+  return payload;
 }
 
 function svgPoint(cx, cy, r, angleDeg) {
@@ -243,246 +312,205 @@ function svgArc(cx, cy, r, a1, a2) {
   const p1 = svgPoint(cx, cy, r, a1);
   const p2 = svgPoint(cx, cy, r, a2);
   const large = Math.abs(a2 - a1) > 180 ? 1 : 0;
-  const sweep = a2 > a1 ? 1 : 0;
-  return `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} A ${r} ${r} 0 ${large} ${sweep} ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  return `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
 }
 
-function mbLabel(pos) {
-  return `${(pos / 1e6).toFixed(2)}Mb`;
-}
-
-function median(values) {
-  const arr = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
-  if (!arr.length) return 0;
-  const mid = Math.floor(arr.length / 2);
-  return arr.length % 2 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
-}
-
-function drawScarlinkCircle(payload) {
+function drawScarlinkCircle(data) {
   const el = document.getElementById("scarlink-circle");
-  const links = (payload.links || []).filter((x) =>
-    x.enhancer_start !== null && x.enhancer_end !== null && x.tss !== null
-  ).slice(0, 72);
+  const links = (data.links || []).slice(0, 72);
   if (!links.length) {
-    el.innerHTML = `<div class="note-box">No enhancer-gene links available.</div>`;
+    el.innerHTML = `<div class="section-title"><p>No enhancer-gene links in the selected disease layer.</p></div>`;
     return;
   }
-  const W = 760, H = 560, cx = 330, cy = 285, R = 205, trackR = 175, enhancerR = 190, promoterR = 160, chordR = 126;
-  const q = payload.query || {};
+  const W = 760, H = 560, cx = 330, cy = 285, outer = 205, inner = 128;
   const coords = [];
   links.forEach((l) => coords.push(l.enhancer_start, l.enhancer_end, l.tss));
   let minPos = Math.min(...coords), maxPos = Math.max(...coords);
-  const span0 = Math.max(1, maxPos - minPos);
-  const pad = Math.max(25000, span0 * 0.12);
-  minPos = Math.max(1, Math.floor(minPos - pad));
-  maxPos = Math.ceil(maxPos + pad);
+  const pad = Math.max(25000, (maxPos - minPos) * .12);
+  minPos -= pad; maxPos += pad;
   const span = Math.max(1, maxPos - minPos);
-  const startAngle = -225, endAngle = 135;
-  const angleFor = (pos) => startAngle + ((pos - minPos) / span) * (endAngle - startAngle);
-  const chr = q.chr || links[0].enhancer_chr || "";
-  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%"><rect width="${W}" height="${H}" fill="transparent"/><circle cx="${cx}" cy="${cy}" r="${R + 28}" fill="rgba(255,255,255,.72)"/><text x="${cx}" y="34" text-anchor="middle" font-size="16" font-weight="700">${escHtml(chr)} SCARlink enhancer-promoter map</text><text x="${cx}" y="56" text-anchor="middle" font-size="12" fill="#6b6f76">${escHtml(chr)}:${minPos.toLocaleString()}-${maxPos.toLocaleString()}</text>`;
-  svg += `<path d="${svgArc(cx, cy, R, startAngle, endAngle)}" fill="none" stroke="#111" stroke-width="2"/>`;
+  const angle = (pos) => -225 + ((pos - minPos) / span) * 360;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%"><rect width="${W}" height="${H}" fill="white"/><circle cx="${cx}" cy="${cy}" r="${outer + 20}" fill="rgba(255,255,255,.78)"/><text x="${cx}" y="36" text-anchor="middle" font-size="17" font-weight="700">${escHtml(data.gene)} | ${escHtml(data.disease)}</text><text x="${cx}" y="58" text-anchor="middle" font-size="12" fill="#667085">${escHtml(data.query.chr)}:${Math.round(minPos).toLocaleString()}-${Math.round(maxPos).toLocaleString()}</text>`;
+  svg += `<path d="${svgArc(cx, cy, outer, -225, 135)}" fill="none" stroke="#173f5f" stroke-width="2.2"/>`;
   for (let i = 0; i <= 18; i++) {
-    const pos = minPos + span * i / 18;
-    const a = angleFor(pos);
-    const p1 = svgPoint(cx, cy, R - 3, a);
-    const p2 = svgPoint(cx, cy, R + (i % 3 === 0 ? 13 : 8), a);
-    const lab = svgPoint(cx, cy, R + 31, a);
-    svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#222" stroke-width="${i % 3 === 0 ? 1.6 : 1}"/>`;
-    if (i % 2 === 0) svg += `<text x="${lab.x}" y="${lab.y}" font-size="11" text-anchor="middle" transform="rotate(${a < 0 ? a + 90 : a - 90} ${lab.x} ${lab.y})">${mbLabel(pos)}</text>`;
+    const pos = minPos + (span * i / 18);
+    const a = angle(pos);
+    const p1 = svgPoint(cx, cy, outer - 4, a);
+    const p2 = svgPoint(cx, cy, outer + (i % 3 === 0 ? 12 : 7), a);
+    svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#173f5f" stroke-width="${i % 3 === 0 ? 1.4 : 1}"/>`;
   }
-  for (let i = 0; i < 10; i++) {
-    if (i % 3 === 2) continue;
-    const a1 = startAngle + i * (endAngle - startAngle) / 10 + 2;
-    const a2 = startAngle + (i + 0.72) * (endAngle - startAngle) / 10;
-    svg += `<path d="${svgArc(cx, cy, trackR, a1, a2)}" fill="none" stroke="#1f77b4" stroke-width="15"/>`;
-  }
-  if (Number.isFinite(q.start) && Number.isFinite(q.end)) {
-    svg += `<path d="${svgArc(cx, cy, R + 5, angleFor(q.start), angleFor(q.end))}" fill="none" stroke="#264bff" stroke-width="4"/>`;
-  }
-  links.slice(0, 46).forEach((l, idx) => {
-    const ea = angleFor((l.enhancer_start + l.enhancer_end) / 2);
-    const pa = angleFor(l.tss);
-    const p1 = svgPoint(cx, cy, chordR, ea);
-    const p2 = svgPoint(cx, cy, chordR, pa);
-    const c1 = svgPoint(cx, cy, 42, ea);
-    const c2 = svgPoint(cx, cy, 42, pa);
-    const width = idx === 0 ? 5.5 : Math.max(1.1, Math.min(4.2, 1.3 + Math.abs(Number(l.regression_coef || 0)) * 18000));
-    const color = idx === 0 ? "#ffea00" : (l.effect === "repression" ? "#187d8a" : "#d62728");
-    svg += `<path d="M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} C ${c1.x.toFixed(2)} ${c1.y.toFixed(2)}, ${c2.x.toFixed(2)} ${c2.y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}" fill="none" stroke="${color}" stroke-width="${width}" stroke-opacity=".78"/>`;
-  });
-  links.slice(0, 40).forEach((l) => {
-    const ea = angleFor((l.enhancer_start + l.enhancer_end) / 2);
-    const pa = angleFor(l.tss);
-    const ep = svgPoint(cx, cy, enhancerR, ea);
-    const pp = svgPoint(cx, cy, promoterR, pa);
-    svg += `<circle cx="${ep.x}" cy="${ep.y}" r="2.4" fill="#666"/><circle cx="${pp.x}" cy="${pp.y}" r="3" fill="#2ca02c"/>`;
+  links.forEach((l, i) => {
+    const ea = angle((l.enhancer_start + l.enhancer_end) / 2);
+    const pa = angle(l.tss);
+    const p1 = svgPoint(cx, cy, inner, ea);
+    const p2 = svgPoint(cx, cy, inner, pa);
+    const c1 = svgPoint(cx, cy, 36, ea);
+    const c2 = svgPoint(cx, cy, 36, pa);
+    const color = l.effect === "repression" ? "#0F766E" : "#B42318";
+    const width = i < 5 ? 3.8 : 1.6;
+    const opacity = i < 20 ? 0.78 : 0.35;
+    svg += `<path d="M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} C ${c1.x.toFixed(2)} ${c1.y.toFixed(2)}, ${c2.x.toFixed(2)} ${c2.y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}" fill="none" stroke="${color}" stroke-width="${width}" opacity="${opacity}"/>`;
   });
   svg += `</svg>`;
   el.innerHTML = svg;
 }
 
-function drawScarlinkBoxplot(payload) {
-  const groups = (payload.boxplot?.groups || []).filter((g) => Array.isArray(g.values) && g.values.length);
-  const traces = groups.map((g, idx) => ({
-    type: "box",
-    y: g.values,
-    name: g.label,
-    boxpoints: "all",
-    jitter: 0.35,
-    pointpos: 0,
-    marker: {size: 4, opacity: 0.48, color: palette[idx % palette.length]},
-    line: {width: 1.2},
-    hovertemplate: `${g.label}<br>z-score=%{y:.4f}<extra></extra>`,
+function drawScarlinkBoxplot(data) {
+  const traces = Object.entries(data.box || {}).slice(0, 28).map(([name, values], idx) => ({
+    type: "box", y: values, name, boxpoints: "all", jitter: .35, marker: {size: 4, opacity: .45, color: palette[idx % palette.length]},
   }));
-  Plotly.newPlot("scarlink-boxplot", traces, {
+  Plotly.react("scarlink-boxplot", traces, {
     paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(255,255,255,.92)",
-    title: {text: "SCARlink z-score by celltype_r2", font: {size: 15}},
-    margin: {l: 58, r: 20, t: 42, b: 110},
-    xaxis: {tickangle: -38, automargin: true},
-    yaxis: {title: "z-score", zeroline: true, gridcolor: "rgba(217,208,194,.55)"},
+    plot_bgcolor: "white",
+    margin: {l: 55, r: 20, t: 22, b: 110},
+    yaxis: {title: "z-score", gridcolor: "rgba(217,224,232,.65)"},
+    xaxis: {tickangle: -35},
     showlegend: false,
   }, {responsive: true, displayModeBar: false});
 }
 
+function renderScarlinkTable(data) {
+  const filter = document.getElementById("scarlink-celltype-filter").value.trim().toLowerCase();
+  const rows = (data.table || []).filter((row) => !filter || String(row.celltype_r2).toLowerCase().includes(filter));
+  document.getElementById("scarlink-head").innerHTML = "<tr><th>Disease</th><th>Cell type</th><th>Peak</th><th>Coef</th><th>FDR</th><th>z-score</th></tr>";
+  document.getElementById("scarlink-table").innerHTML = rows.slice(0, 160).map((row) => `<tr><td>${escHtml(row.disease)}</td><td>${escHtml(row.celltype_r2)}</td><td>${escHtml(row.peak)}</td><td>${row.regression_coef}</td><td>${row.fdr}</td><td>${row.z_score}</td></tr>`).join("");
+}
+
 async function renderScarlink() {
+  const manifest = await loadScarlinkManifest();
   document.getElementById("atlas-controls").classList.add("hidden");
   document.getElementById("scarlink-controls").classList.remove("hidden");
-  document.getElementById("plot").classList.add("hidden");
+  document.getElementById("atlas-layout").classList.add("hidden");
   document.getElementById("scarlink-layout").classList.remove("hidden");
   document.getElementById("reference-layout").classList.add("hidden");
-  const manifest = await loadScarlinkManifest();
-  const select = document.getElementById("scarlink-gene");
-  select.innerHTML = manifest.genes.map((x) => `<option value="${x.gene}">${x.gene}</option>`).join("");
-  const gene = select.value || manifest.genes[0]?.gene;
-  const payload = await loadScarlinkGene(gene);
+  document.getElementById("markers-panel").innerHTML = `<div class="marker-group">SCARlink examples are organized by gene and disease. Use the disease selector to redraw the circle plot.</div>`;
+  renderSummaryCards({n_exported_cells: manifest.genes.length, n_total_source_cells: manifest.diseases.length, n_subtypes: "SCARlink", n_diseases: manifest.diseases.length}, "Example", "Disease layers");
   setText("view-title", "SCARlink links");
-  setText("view-subtitle", payload.message || "Static SCARlink examples.");
-  document.getElementById("module-note").textContent = "Example enhancer-gene links exported from SCARlink result tables.";
+  setText("view-subtitle", "Disease-aware static SCARlink view.");
+  document.getElementById("module-note").textContent = "Circle plot, boxplot, and table are all drawn from static JSON without any backend API.";
+  const geneSelect = document.getElementById("scarlink-gene");
+  if (!geneSelect.options.length) geneSelect.innerHTML = manifest.genes.map((g) => `<option value="${g.gene}">${g.gene}</option>`).join("");
+  const gene = geneSelect.value || manifest.genes[0]?.gene;
+  const geneEntry = manifest.genes.find((g) => g.gene === gene) || manifest.genes[0];
+  const diseaseSelect = document.getElementById("scarlink-disease");
+  diseaseSelect.innerHTML = geneEntry.diseases.map((d) => `<option value="${d.slug}">${d.name}</option>`).join("");
+  const diseaseSlug = diseaseSelect.value || geneEntry.diseases[0]?.slug;
+  const payload = await loadScarlinkPayload(gene, diseaseSlug);
+  state.currentScarlinkGene = gene;
+  state.currentScarlinkDisease = diseaseSlug;
+  setText("scarlink-caption", `${gene} in ${payload.disease}`);
   drawScarlinkCircle(payload);
   drawScarlinkBoxplot(payload);
-  document.getElementById("scarlink-head").innerHTML = "<tr><th>Disease</th><th>Cell type</th><th>Peak</th><th>Coef</th><th>FDR</th></tr>";
-  document.getElementById("scarlink-table").innerHTML = payload.table.slice(0, 120).map((row) =>
-    `<tr><td>${escHtml(row.disease)}</td><td>${escHtml(row.celltype_r2)}</td><td>${escHtml(row.peak)}</td><td>${row.regression_coef}</td><td>${row.fdr}</td></tr>`
-  ).join("");
-  document.getElementById("scarlink-examples").innerHTML = manifest.genes.map((row) =>
-    `<div class="example-card" data-gene="${row.gene}"><strong>${row.gene}</strong><div>${row.n_rows} links</div><small>${escHtml(row.query_region)}</small></div>`
-  ).join("");
-  document.querySelectorAll(".example-card").forEach((card) => {
-    card.addEventListener("click", async () => {
-      document.getElementById("scarlink-gene").value = card.dataset.gene;
-      const next = await loadScarlinkGene(card.dataset.gene);
-      drawScarlinkCircle(next);
-      drawScarlinkBoxplot(next);
-      setText("view-subtitle", next.message || "Static SCARlink examples.");
-      document.getElementById("scarlink-table").innerHTML = next.table.slice(0, 120).map((row) =>
-        `<tr><td>${escHtml(row.disease)}</td><td>${escHtml(row.celltype_r2)}</td><td>${escHtml(row.peak)}</td><td>${row.regression_coef}</td><td>${row.fdr}</td></tr>`
-      ).join("");
-    });
-  });
-  renderSummary({n_exported_cells: manifest.genes.length, n_total_source_cells: "Multi-disease", n_subtypes: "celltype_r2", n_diseases: "SCARlink",}, "Example", "Links");
-  document.getElementById("markers-panel").innerHTML = `<div class="marker-group">Load one of the example genes to inspect circle, boxplot, and table views.</div>`;
+  renderScarlinkTable(payload);
+}
+
+async function loadReference() {
+  const [summary, example] = await Promise.all([getJSON("data/reference_mapping/summary.json"), getJSON("data/reference_mapping/example_mapping.json")]);
+  return {summary, example};
 }
 
 async function renderReference() {
   document.getElementById("atlas-controls").classList.add("hidden");
   document.getElementById("scarlink-controls").classList.add("hidden");
-  document.getElementById("plot").classList.add("hidden");
+  document.getElementById("atlas-layout").classList.add("hidden");
   document.getElementById("scarlink-layout").classList.add("hidden");
   document.getElementById("reference-layout").classList.remove("hidden");
   const {summary, example} = await loadReference();
   setText("view-title", "Reference mapping");
   setText("view-subtitle", summary.description);
-  document.getElementById("module-note").textContent = "Static workflow-only page for blind-review deployment.";
+  document.getElementById("module-note").textContent = "Static summary panel for reference mapping workflow.";
+  document.getElementById("markers-panel").innerHTML = `<div class="marker-group">Reference mapping is shown as a static workflow summary in this GitHub Pages deployment.</div>`;
+  renderSummaryCards({n_exported_cells: summary.modules.length, n_total_source_cells: summary.modules.length, n_subtypes: "Workflow", n_diseases: "Static"}, "Summary", "Table");
   document.getElementById("reference-layout").innerHTML = `
-    <div class="panel inner-panel">
-      <h3>Workflow</h3>
+    <div class="plot-card reference-panel">
+      <div class="plot-card-head"><h3>Workflow</h3><span>Static summary</span></div>
       <ol>${summary.workflow.map((step) => `<li>${escHtml(step)}</li>`).join("")}</ol>
     </div>
-    <div class="panel inner-panel">
-      <h3>Example mapping table</h3>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>${example.columns.map((c) => `<th>${escHtml(c)}</th>`).join("")}</tr></thead>
-          <tbody>${example.rows.map((row) => `<tr>${row.map((v) => `<td>${escHtml(v)}</td>`).join("")}</tr>`).join("")}</tbody>
-        </table>
-      </div>
+    <div class="plot-card reference-panel" style="margin-top:1rem;">
+      <div class="plot-card-head"><h3>Example mapping table</h3><span>Exported modules</span></div>
+      <div class="table-wrap"><table><thead><tr>${example.columns.map((c) => `<th>${escHtml(c)}</th>`).join("")}</tr></thead><tbody>${example.rows.map((row) => `<tr>${row.map((x) => `<td>${escHtml(x)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
     </div>`;
-  renderSummary({n_exported_cells: summary.modules.length, n_total_source_cells: "Reference", n_subtypes: "Static", n_diseases: "Static"}, "Workflow", "Table");
-  document.getElementById("markers-panel").innerHTML = `<div class="marker-group">Reference mapping is shown as a compact static summary in this demo.</div>`;
 }
 
 async function switchModule(moduleKey) {
   state.currentModule = moduleKey;
   renderNav();
-  if (moduleKey === "scarlink") {
-    return renderScarlink();
-  }
-  if (moduleKey === "reference_mapping") {
-    return renderReference();
-  }
-  document.getElementById("plot").classList.remove("hidden");
-  document.getElementById("scarlink-layout").classList.add("hidden");
-  document.getElementById("reference-layout").classList.add("hidden");
+  if (moduleKey === "scarlink") return renderScarlink();
+  if (moduleKey === "reference_mapping") return renderReference();
   const data = await loadAtlasModule(moduleKey);
-  state.colorBy = "subtype";
-  state.currentFeatureType = "rna";
-  state.currentFeature = Object.keys(data.rna.features)[0] || null;
-  updateControlsForAtlas(data);
-  renderAtlas(data);
+  if (!(data.categories.available_color_by || []).includes(state.currentColorBy)) state.currentColorBy = "subtype";
+  state.currentFeature = null;
+  configureAtlasControls(data);
+  await renderAtlasModule(data);
 }
 
 async function init() {
   state.manifest = await getJSON("data/manifest.json");
   renderNav();
   document.getElementById("color-by").addEventListener("change", async (e) => {
-    state.colorBy = e.target.value;
+    state.currentColorBy = e.target.value;
     const data = await loadAtlasModule(state.currentModule);
-    renderAtlas(data);
+    await renderAtlasModule(data);
   });
   document.getElementById("feature-type").addEventListener("change", async (e) => {
     state.currentFeatureType = e.target.value;
     const data = await loadAtlasModule(state.currentModule);
     populateFeatureSelect(data);
-    renderAtlas(data);
+    if (state.currentFeature) await renderAtlasModule(data);
   });
   document.getElementById("feature-select").addEventListener("change", async (e) => {
-    state.currentFeature = e.target.value;
+    state.currentFeature = e.target.value || null;
+    if (state.currentFeature) state.currentColorBy = "selected_feature";
     const data = await loadAtlasModule(state.currentModule);
-    renderAtlas(data);
+    document.getElementById("color-by").value = state.currentColorBy;
+    await renderAtlasModule(data);
   });
   document.getElementById("feature-search").addEventListener("input", async () => {
     if (["scarlink", "reference_mapping"].includes(state.currentModule)) return;
     const data = await loadAtlasModule(state.currentModule);
     populateFeatureSelect(data);
   });
+  document.getElementById("violin-group-by").addEventListener("change", async () => {
+    if (!state.currentFeature) return;
+    const data = await loadAtlasModule(state.currentModule);
+    await renderAtlasModule(data);
+  });
   document.getElementById("point-size").addEventListener("input", async () => {
     if (["scarlink", "reference_mapping"].includes(state.currentModule)) return;
     const data = await loadAtlasModule(state.currentModule);
-    renderAtlas(data);
+    await renderAtlasModule(data);
   });
   document.getElementById("point-opacity").addEventListener("input", async () => {
     if (["scarlink", "reference_mapping"].includes(state.currentModule)) return;
     const data = await loadAtlasModule(state.currentModule);
-    renderAtlas(data);
+    await renderAtlasModule(data);
   });
   document.getElementById("reset-view").addEventListener("click", async () => {
-    if (["scarlink", "reference_mapping"].includes(state.currentModule)) return;
     const data = await loadAtlasModule(state.currentModule);
-    renderAtlas(data);
+    await renderAtlasModule(data);
   });
   document.getElementById("scarlink-load").addEventListener("click", async () => {
+    await renderScarlink();
+  });
+  document.getElementById("scarlink-gene").addEventListener("change", async () => renderScarlink());
+  document.getElementById("scarlink-disease").addEventListener("change", async () => {
     const gene = document.getElementById("scarlink-gene").value;
-    const payload = await loadScarlinkGene(gene);
+    const payload = await loadScarlinkPayload(gene, document.getElementById("scarlink-disease").value);
+    setText("scarlink-caption", `${gene} in ${payload.disease}`);
     drawScarlinkCircle(payload);
     drawScarlinkBoxplot(payload);
-    setText("view-subtitle", payload.message || "Static SCARlink examples.");
+    renderScarlinkTable(payload);
   });
-  switchModule("whole_brain");
+  document.getElementById("scarlink-celltype-filter").addEventListener("input", async () => {
+    if (!state.currentScarlinkGene || !state.currentScarlinkDisease) return;
+    const payload = await loadScarlinkPayload(state.currentScarlinkGene, state.currentScarlinkDisease);
+    renderScarlinkTable(payload);
+  });
+  await switchModule("whole_brain");
 }
 
 init().catch((err) => {
   setText("view-title", "Load error");
   setText("view-subtitle", err.message);
+  console.error(err);
 });

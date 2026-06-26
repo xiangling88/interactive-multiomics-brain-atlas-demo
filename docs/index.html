@@ -3,28 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Interactive Multi-omics Brain Atlas Demo</title>
+  <title>Interactive Multi-omics Brain Atlas</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
-      <h1>Interactive Multi-omics Brain Atlas Demo</h1>
-      <p>Static blind-review browser for downsampled RNA + ATAC views.</p>
-    </div>
-    <nav id="module-nav" class="module-nav"></nav>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Static atlas browser</p>
+        <h1>Interactive Multi-omics Brain Atlas</h1>
+        <p class="hero-copy">Chunked UMAP views, lazy-loaded RNA and ATAC features, SCARlink disease layers, and blind-review static deployment for GitHub Pages.</p>
+      </div>
+      <nav id="module-nav" class="module-nav"></nav>
+    </section>
   </header>
 
-  <main class="shell">
+  <main class="page-shell">
     <aside class="sidebar">
-      <section class="panel">
-        <h2>Controls</h2>
+      <section class="panel controls-panel">
+        <div class="section-title">
+          <h2>Controls</h2>
+          <p id="module-note">Loading module summary...</p>
+        </div>
         <div id="atlas-controls" class="control-grid">
           <label>Color by
             <select id="color-by"></select>
           </label>
-          <label>Feature type
+          <label>Feature mode
             <select id="feature-type">
               <option value="rna">RNA</option>
               <option value="atac">ATAC</option>
@@ -33,58 +39,93 @@
           <label>Feature
             <select id="feature-select"></select>
           </label>
-          <label>Search gene
-            <input id="feature-search" type="search" placeholder="Search feature">
+          <label>Search feature
+            <input id="feature-search" type="search" placeholder="Search gene or peak">
+          </label>
+          <label>Violin grouped by
+            <select id="violin-group-by">
+              <option value="subtype">Subtype</option>
+              <option value="disease">Disease</option>
+              <option value="subtype_disease">Subtype + disease</option>
+            </select>
           </label>
           <label>Point size
-            <input id="point-size" type="range" min="2" max="9" step="1" value="4">
+            <input id="point-size" type="range" min="2" max="6" step="1" value="3">
           </label>
           <label>Opacity
-            <input id="point-opacity" type="range" min="0.2" max="1" step="0.05" value="0.75">
+            <input id="point-opacity" type="range" min="0.18" max="0.95" step="0.05" value="0.7">
           </label>
           <button id="reset-view" type="button">Reset view</button>
         </div>
         <div id="scarlink-controls" class="control-grid hidden">
-          <label>Example gene
+          <label>Gene
             <select id="scarlink-gene"></select>
           </label>
-          <button id="scarlink-load" type="button">Load example</button>
+          <label>Disease
+            <select id="scarlink-disease"></select>
+          </label>
+          <label>Cell type filter
+            <input id="scarlink-celltype-filter" type="search" placeholder="Filter cell type">
+          </label>
+          <button id="scarlink-load" type="button">Update SCARlink view</button>
         </div>
       </section>
 
       <section class="panel">
-        <h2>Markers</h2>
+        <div class="section-title">
+          <h2>Markers</h2>
+          <p>Click a marker to color the UMAP and redraw the violin panel.</p>
+        </div>
         <div id="markers-panel" class="marker-panel"></div>
       </section>
 
       <section class="panel">
-        <h2>Notes</h2>
-        <div id="module-note" class="note-box"></div>
+        <div class="section-title">
+          <h2>Summary</h2>
+          <p>Exported cells, source cells, and available features.</p>
+        </div>
+        <div id="summary-cards" class="summary-grid summary-grid-side"></div>
       </section>
     </aside>
 
-    <section class="content">
-      <section class="panel hero-panel">
-        <div class="panel-head">
+    <section class="main-column">
+      <section class="panel atlas-panel">
+        <div class="section-title atlas-head">
           <div>
             <h2 id="view-title">Whole Brain</h2>
-            <p id="view-subtitle">Loading demo data...</p>
+            <p id="view-subtitle">Loading static atlas data...</p>
+          </div>
+          <div id="load-progress" class="progress-pill">Waiting</div>
+        </div>
+        <div id="atlas-layout" class="atlas-layout">
+          <div class="plot-card">
+            <div class="plot-card-head">
+              <h3>UMAP</h3>
+              <span id="umap-caption">Subtype view</span>
+            </div>
+            <div id="umap-plot" class="plot square-plot"></div>
+          </div>
+          <div class="plot-card side-card">
+            <div class="plot-card-head">
+              <h3 id="detail-title">Subtype x disease relationship</h3>
+              <span id="detail-caption">No feature selected</span>
+            </div>
+            <div id="detail-plot" class="plot detail-plot"></div>
           </div>
         </div>
-        <div id="plot" class="plot"></div>
         <div id="scarlink-layout" class="hidden">
           <div class="scarlink-grid">
-            <div class="panel inner-panel">
-              <h3>Circle plot</h3>
-              <div id="scarlink-circle" class="plot small-plot"></div>
+            <div class="plot-card">
+              <div class="plot-card-head"><h3>Circle plot</h3><span id="scarlink-caption">Disease-specific enhancer-gene map</span></div>
+              <div id="scarlink-circle" class="plot circle-plot"></div>
             </div>
-            <div class="panel inner-panel">
-              <h3>Boxplot</h3>
-              <div id="scarlink-boxplot" class="plot small-plot"></div>
+            <div class="plot-card">
+              <div class="plot-card-head"><h3>z-score boxplot</h3><span>Grouped by celltype_r2</span></div>
+              <div id="scarlink-boxplot" class="plot detail-plot"></div>
             </div>
           </div>
-          <div class="panel inner-panel">
-            <h3>Links table</h3>
+          <div class="plot-card table-card">
+            <div class="plot-card-head"><h3>Link table</h3><span>Filtered by selected gene and disease</span></div>
             <div class="table-wrap">
               <table>
                 <thead id="scarlink-head"></thead>
@@ -92,12 +133,9 @@
               </table>
             </div>
           </div>
-          <div id="scarlink-examples" class="example-grid"></div>
         </div>
         <div id="reference-layout" class="hidden"></div>
       </section>
-
-      <section id="summary-cards" class="summary-grid"></section>
     </section>
   </main>
 

@@ -1,70 +1,87 @@
-# Interactive Multi-omics Brain Atlas Demo
+# Interactive Multi-omics Brain Atlas
 
-This repository is a blind-review static demo for a multi-omics brain atlas browser. It contains only downsampled JSON files for GitHub Pages deployment and does not include raw large-scale source data.
+This repository hosts a blind-review static atlas browser for GitHub Pages. The deployed site is built from `docs/` only and does not require any Python backend or `/api/*` endpoint.
 
-The static site lives in `docs/` and reads only:
+## Static site contents
+
+The published browser reads only:
 
 - `docs/index.html`
 - `docs/app.js`
 - `docs/style.css`
 - `docs/data/**/*.json`
 
-No Python backend, `/api/*` endpoint, `h5mu`, full `npz`, full metadata table, or large SCARlink cache is required at deploy time.
+Large raw files such as full `h5mu`, `npz`, full metadata tables, compressed caches, and original SCARlink result archives are not committed for web deployment.
 
-## Local export
+## Export atlas data
 
-Recommended dependencies:
-
-- Python 3.10+
-- `numpy`
-- `pandas`
-- `h5py`
-- `anndata`
-- `mudata`
-
-Export atlas demo data:
+Full chunked embedding export with per-feature lazy-loading:
 
 ```bash
-python scripts/export_atlas_demo.py --module all --out docs/data --overwrite
+python scripts/export_atlas_demo.py --module all --full-embedding --feature-per-file --out docs/data --overwrite
 ```
 
-Export SCARlink demo data:
+Useful size controls:
+
+```bash
+python scripts/export_atlas_demo.py \
+  --module all \
+  --full-embedding \
+  --feature-per-file \
+  --max-total-docs-mb 800 \
+  --max-json-mb 45 \
+  --cell-chunk-size 50000 \
+  --out docs/data \
+  --overwrite
+```
+
+If the estimated total size exceeds the configured limit, the exporter automatically falls back to larger stratified subsamples instead of writing oversized payloads.
+
+## Export SCARlink demo data
 
 ```bash
 python scripts/export_scarlink_demo.py --out docs/data/scarlink --overwrite
 ```
 
-One-command build:
+## Add more display genes later
+
+Append selected genes to existing exported module features and optional SCARlink examples:
 
 ```bash
-bash scripts/build_demo_all.sh
+python scripts/add_demo_genes.py --genes KLF12 CDH4 --modules astrocyte --update-rna --update-atac --update-scarlink
+```
+
+You can also read genes from a file:
+
+```bash
+python scripts/add_demo_genes.py --gene-file genes.txt --modules all --update-rna --update-atac
+```
+
+Dry-run is supported:
+
+```bash
+python scripts/add_demo_genes.py --genes KLF12 CDH4 --modules astrocyte --update-rna --dry-run
 ```
 
 ## Local preview
 
 ```bash
-cd docs
-python -m http.server 8000
+cd docs && python -m http.server 8000
 ```
 
 Then open `http://localhost:8000`.
 
-## GitHub Pages
+## GitHub Pages update workflow
 
-1. Open repository `Settings`.
-2. Go to `Pages`.
-3. Under `Build and deployment`, select `Deploy from a branch`.
-4. Choose branch `main`.
-5. Choose folder `/docs`.
+After regenerating `docs/data`:
 
-The page loads Plotly from a public CDN. If a fully offline deployment is required, vendor Plotly locally into `docs/`.
+```bash
+git add docs scripts README.md .gitignore
+git commit -m "Improve full atlas static demo"
+git push origin main
+```
 
-## Updating the demo
-
-1. Re-run the export scripts.
-2. Review the generated `docs/data/**/*.json`.
-3. Confirm no local path or identifying metadata leaked into `docs/`, `README.md`, or commit content.
-4. Commit only the small static demo assets.
+In the repository settings, configure GitHub Pages to publish from branch `main` and folder `/docs`.
 
 ## File size policy
 
@@ -72,15 +89,15 @@ Do not commit:
 
 - raw `h5mu` / `h5ad`
 - full `npz`
-- full metadata text files
+- full metadata text tables
 - compressed source matrices
-- the original SCARlink result directory
-- large cache artifacts not required by `docs/`
+- original SCARlink result directories
+- large cache artifacts not needed by `docs/`
 
-Only the downsampled JSON files inside `docs/data/` should be committed for the web demo.
+Commit only the downsampled static JSON files required by the published browser.
 
 ## Blind-review notes
 
 - Keep page copy generic.
-- Do not expose author names, institution names, local servers, usernames, or absolute paths.
-- Re-check `docs/`, `README.md`, and git history before pushing.
+- Do not expose local paths, usernames, author names, institution names, or server identifiers in `docs/` or `README.md`.
+- Re-run the content scans before pushing updates.
