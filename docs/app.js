@@ -315,56 +315,139 @@ function svgArc(cx, cy, r, a1, a2) {
   return `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function formatCoord(value) {
+  return Number(value || 0).toLocaleString();
+}
+
+function mixHex(a, b, t) {
+  const pa = a.match(/\w\w/g).map((x) => parseInt(x, 16));
+  const pb = b.match(/\w\w/g).map((x) => parseInt(x, 16));
+  const out = pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, "0"));
+  return `#${out.join("")}`;
+}
+
+function scarlinkLinkColor(link) {
+  const sig = clamp(Number(link.significance || 0) / 6, 0, 1);
+  const base = link.effect === "repression" ? "0f766e" : "b42318";
+  const light = link.effect === "repression" ? "d8f3f0" : "fbe3de";
+  return mixHex(light, base, 0.28 + sig * 0.72);
+}
+
+function tickLabelAttrs(angleDeg, x, y) {
+  const flip = angleDeg > 90 || angleDeg < -90;
+  return `x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="11" fill="#475467" text-anchor="middle" transform="rotate(${flip ? angleDeg + 180 : angleDeg}, ${x.toFixed(2)}, ${y.toFixed(2)})"`;
+}
+
 function drawScarlinkCircle(data) {
   const el = document.getElementById("scarlink-circle");
-  const links = (data.links || []).slice(0, 72);
+  const links = (data.links || []).slice(0, 120);
+  const topLinks = (data.top_links || []).slice(0, 5);
   if (!links.length) {
     el.innerHTML = `<div class="section-title"><p>No enhancer-gene links in the selected disease layer.</p></div>`;
     return;
   }
-  const W = 760, H = 560, cx = 330, cy = 285, outer = 205, inner = 128;
+  const W = 920, H = 580, cx = 286, cy = 292, outer = 204, trackOuter = 176, trackInner = 160, inner = 122;
   const coords = [];
-  links.forEach((l) => coords.push(l.enhancer_start, l.enhancer_end, l.tss));
+  links.forEach((l) => coords.push(l.enhancer_start, l.enhancer_end, l.tss, l.promoter_start, l.promoter_end));
   let minPos = Math.min(...coords), maxPos = Math.max(...coords);
-  const pad = Math.max(25000, (maxPos - minPos) * .12);
-  minPos -= pad; maxPos += pad;
+  const pad = Math.max(25000, (maxPos - minPos) * 0.1);
+  minPos -= pad;
+  maxPos += pad;
   const span = Math.max(1, maxPos - minPos);
   const angle = (pos) => -225 + ((pos - minPos) / span) * 360;
-  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%"><rect width="${W}" height="${H}" fill="white"/><circle cx="${cx}" cy="${cy}" r="${outer + 20}" fill="rgba(255,255,255,.78)"/><text x="${cx}" y="36" text-anchor="middle" font-size="17" font-weight="700">${escHtml(data.gene)} | ${escHtml(data.disease)}</text><text x="${cx}" y="58" text-anchor="middle" font-size="12" fill="#667085">${escHtml(data.query.chr)}:${Math.round(minPos).toLocaleString()}-${Math.round(maxPos).toLocaleString()}</text>`;
-  svg += `<path d="${svgArc(cx, cy, outer, -225, 135)}" fill="none" stroke="#173f5f" stroke-width="2.2"/>`;
-  for (let i = 0; i <= 18; i++) {
-    const pos = minPos + (span * i / 18);
+  const majorTicks = 8;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%"><rect width="${W}" height="${H}" rx="20" fill="white"/><circle cx="${cx}" cy="${cy}" r="${outer + 18}" fill="rgba(248,250,252,.92)" stroke="rgba(15,23,42,.05)"/>`;
+  svg += `<text x="${cx}" y="38" text-anchor="middle" font-size="18" font-weight="700" fill="#1f2937">${escHtml(data.query.chr)} SCARlink enhancer-promoter map</text>`;
+  svg += `<text x="${cx}" y="60" text-anchor="middle" font-size="12" fill="#667085">${escHtml(data.summary?.display_window || `${data.query.chr}:${formatCoord(minPos)}-${formatCoord(maxPos)}`)}</text>`;
+  for (let i = 0; i < 6; i += 1) {
+    const a1 = -220 + i * 60;
+    const a2 = a1 + 36;
+    svg += `<path d="${svgArc(cx, cy, trackOuter, a1, a2)}" fill="none" stroke="#2b7bbb" stroke-width="16" stroke-linecap="butt"/>`;
+  }
+  const promA1 = angle(data.query.promoter_start || data.query.start);
+  const promA2 = angle(data.query.promoter_end || data.query.end);
+  svg += `<path d="${svgArc(cx, cy, inner + 18, promA1, promA2)}" fill="none" stroke="#3da63a" stroke-width="8" stroke-linecap="round"/>`;
+  topLinks.forEach((row) => {
+    const a1 = angle(row.start || row.enhancer_start);
+    const a2 = angle(row.end || row.enhancer_end);
+    svg += `<path d="${svgArc(cx, cy, outer - 12, a1, a2)}" fill="none" stroke="#9aa0a6" stroke-width="7" stroke-linecap="round"/>`;
+  });
+  for (let i = 0; i <= majorTicks * 2; i += 1) {
+    const pos = minPos + (span * i / (majorTicks * 2));
     const a = angle(pos);
     const p1 = svgPoint(cx, cy, outer - 4, a);
-    const p2 = svgPoint(cx, cy, outer + (i % 3 === 0 ? 12 : 7), a);
-    svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#173f5f" stroke-width="${i % 3 === 0 ? 1.4 : 1}"/>`;
+    const p2 = svgPoint(cx, cy, outer + (i % 2 === 0 ? 13 : 7), a);
+    svg += `<line x1="${p1.x.toFixed(2)}" y1="${p1.y.toFixed(2)}" x2="${p2.x.toFixed(2)}" y2="${p2.y.toFixed(2)}" stroke="#111827" stroke-width="${i % 2 === 0 ? 1.3 : 0.8}"/>`;
+    if (i % 2 === 0) {
+      const labelPos = svgPoint(cx, cy, outer + 31, a);
+      svg += `<text ${tickLabelAttrs(a, labelPos.x, labelPos.y)}>${(pos / 1e6).toFixed(2)}Mb</text>`;
+    }
   }
-  links.forEach((l, i) => {
+  links.forEach((l) => {
     const ea = angle((l.enhancer_start + l.enhancer_end) / 2);
     const pa = angle(l.tss);
     const p1 = svgPoint(cx, cy, inner, ea);
     const p2 = svgPoint(cx, cy, inner, pa);
-    const c1 = svgPoint(cx, cy, 36, ea);
-    const c2 = svgPoint(cx, cy, 36, pa);
-    const color = l.effect === "repression" ? "#0F766E" : "#B42318";
-    const width = i < 5 ? 3.8 : 1.6;
-    const opacity = i < 20 ? 0.78 : 0.35;
-    svg += `<path d="M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} C ${c1.x.toFixed(2)} ${c1.y.toFixed(2)}, ${c2.x.toFixed(2)} ${c2.y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}" fill="none" stroke="${color}" stroke-width="${width}" opacity="${opacity}"/>`;
+    const c1 = svgPoint(cx, cy, 28, ea);
+    const c2 = svgPoint(cx, cy, 28, pa);
+    const sig = clamp(Number(l.significance || 0) / 6, 0.12, 1);
+    const width = l.is_top5 ? 4.8 : 0.8 + sig * 1.2;
+    const opacity = l.is_top5 ? 0.96 : 0.14 + sig * 0.3;
+    svg += `<path d="M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} C ${c1.x.toFixed(2)} ${c1.y.toFixed(2)}, ${c2.x.toFixed(2)} ${c2.y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}" fill="none" stroke="${scarlinkLinkColor(l)}" stroke-width="${width.toFixed(2)}" opacity="${opacity.toFixed(2)}"/>`;
   });
+  svg += `<text x="${cx}" y="${cy - 12}" text-anchor="middle" font-size="26" font-weight="800" fill="#111827">${escHtml(data.query.chr)}</text>`;
+  svg += `<text x="${cx}" y="${cy + 12}" text-anchor="middle" font-size="13" fill="#667085">${escHtml(data.gene)} promoter / TSS</text>`;
+  svg += `<text x="${cx}" y="${cy + 32}" text-anchor="middle" font-size="12" fill="#475467">TSS ${formatCoord(data.query.tss)}</text>`;
+  topLinks.forEach((row, idx) => {
+    const mid = (row.start + row.end) / 2;
+    const a = angle(mid);
+    const p = svgPoint(cx, cy, outer + 55 + (idx % 2) * 12, a);
+    const label = `${row.gene} ${formatCoord(row.start)}-${formatCoord(row.end)}`;
+    svg += `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="10" fill="${scarlinkLinkColor(row)}" opacity="0.92"/>`;
+    svg += `<text x="${p.x.toFixed(2)}" y="${(p.y + 3.5).toFixed(2)}" text-anchor="middle" font-size="10" font-weight="700" fill="white">${idx + 1}</text>`;
+    svg += `<text x="${(560).toFixed(2)}" y="${(118 + idx * 28).toFixed(2)}" font-size="12" fill="#344054">${idx + 1}. ${escHtml(label)} | FDR ${row.fdr}</text>`;
+  });
+  svg += `<text x="560" y="72" font-size="15" font-weight="700" fill="#1f2937">Track legend</text>`;
+  [
+    ["#2b7bbb", "genome track"],
+    ["#3da63a", "promoter / TSS"],
+    ["#9aa0a6", "enhancer tile (top links)"],
+    [scarlinkLinkColor({effect: 'activation', significance: 5}), "activation link"],
+    [scarlinkLinkColor({effect: 'repression', significance: 5}), "repression link"],
+  ].forEach((row, idx) => {
+    const y = 94 + idx * 24;
+    svg += `<rect x="560" y="${y - 10}" width="16" height="10" rx="2" fill="${row[0]}"/><text x="584" y="${y - 1}" font-size="12" fill="#344054">${row[1]}</text>`;
+  });
+  svg += `<text x="560" y="248" font-size="15" font-weight="700" fill="#1f2937">Top 5 contacts</text>`;
+  svg += `<text x="560" y="270" font-size="12" fill="#667085">Link color intensity scales with -log10(FDR).</text>`;
+  svg += `<text x="560" y="294" font-size="12" fill="#667085">Showing ${Math.min(links.length, 120)} links; top 5 are labeled around the ring.</text>`;
   svg += `</svg>`;
   el.innerHTML = svg;
 }
 
 function drawScarlinkBoxplot(data) {
   const traces = Object.entries(data.box || {}).slice(0, 28).map(([name, values], idx) => ({
-    type: "box", y: values, name, boxpoints: "all", jitter: .35, marker: {size: 4, opacity: .45, color: palette[idx % palette.length]},
+    type: "box",
+    y: values,
+    name,
+    boxpoints: "all",
+    jitter: 0.32,
+    pointpos: -1.2,
+    marker: {size: 4, opacity: 0.42, color: palette[idx % palette.length]},
+    line: {color: palette[idx % palette.length]},
+    fillcolor: palette[idx % palette.length],
+    opacity: 0.55,
   }));
   Plotly.react("scarlink-boxplot", traces, {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "white",
-    margin: {l: 55, r: 20, t: 22, b: 110},
+    margin: {l: 55, r: 20, t: 22, b: 150},
     yaxis: {title: "z-score", gridcolor: "rgba(217,224,232,.65)"},
-    xaxis: {tickangle: -35},
+    xaxis: {tickangle: -35, automargin: true},
     showlegend: false,
   }, {responsive: true, displayModeBar: false});
 }
@@ -372,8 +455,8 @@ function drawScarlinkBoxplot(data) {
 function renderScarlinkTable(data) {
   const filter = document.getElementById("scarlink-celltype-filter").value.trim().toLowerCase();
   const rows = (data.table || []).filter((row) => !filter || String(row.celltype_r2).toLowerCase().includes(filter));
-  document.getElementById("scarlink-head").innerHTML = "<tr><th>Disease</th><th>Cell type</th><th>Peak</th><th>Coef</th><th>FDR</th><th>z-score</th></tr>";
-  document.getElementById("scarlink-table").innerHTML = rows.slice(0, 160).map((row) => `<tr><td>${escHtml(row.disease)}</td><td>${escHtml(row.celltype_r2)}</td><td>${escHtml(row.peak)}</td><td>${row.regression_coef}</td><td>${row.fdr}</td><td>${row.z_score}</td></tr>`).join("");
+  document.getElementById("scarlink-head").innerHTML = "<tr><th>Rank</th><th>Disease</th><th>Cell type</th><th>Peak</th><th>Effect</th><th>Coef</th><th>FDR</th><th>-log10(FDR)</th><th>z-score</th></tr>";
+  document.getElementById("scarlink-table").innerHTML = rows.slice(0, 220).map((row) => `<tr><td>${row.rank}</td><td>${escHtml(row.disease)}</td><td>${escHtml(row.celltype_r2)}</td><td>${escHtml(row.peak)}</td><td>${escHtml(row.effect)}</td><td>${row.regression_coef}</td><td>${row.fdr}</td><td>${row.significance}</td><td>${row.z_score}</td></tr>`).join("");
 }
 
 async function renderScarlink() {
@@ -383,11 +466,11 @@ async function renderScarlink() {
   document.getElementById("atlas-layout").classList.add("hidden");
   document.getElementById("scarlink-layout").classList.remove("hidden");
   document.getElementById("reference-layout").classList.add("hidden");
-  document.getElementById("markers-panel").innerHTML = `<div class="marker-group">SCARlink examples are organized by gene and disease. Use the disease selector to redraw the circle plot.</div>`;
+  document.getElementById("markers-panel").innerHTML = `<div class="marker-group">SCARlink examples are organized by gene and disease. Link color intensity reflects FDR significance, and the top 5 contacts are labeled in the circle map.</div>`;
   renderSummaryCards({n_exported_cells: manifest.genes.length, n_total_source_cells: manifest.diseases.length, n_subtypes: "SCARlink", n_diseases: manifest.diseases.length}, "Example", "Disease layers");
   setText("view-title", "SCARlink links");
-  setText("view-subtitle", "Disease-aware static SCARlink view.");
-  document.getElementById("module-note").textContent = "Circle plot, boxplot, and table are all drawn from static JSON without any backend API.";
+  setText("view-subtitle", "Disease-aware static SCARlink view with coordinate-rich enhancer-promoter maps.");
+  document.getElementById("module-note").textContent = "Circle plot, boxplot, and table are drawn from static JSON only. Top 5 contacts are highlighted and link color intensity follows FDR significance.";
   const geneSelect = document.getElementById("scarlink-gene");
   if (!geneSelect.options.length) geneSelect.innerHTML = manifest.genes.map((g) => `<option value="${g.gene}">${g.gene}</option>`).join("");
   const gene = geneSelect.value || manifest.genes[0]?.gene;
@@ -398,7 +481,7 @@ async function renderScarlink() {
   const payload = await loadScarlinkPayload(gene, diseaseSlug);
   state.currentScarlinkGene = gene;
   state.currentScarlinkDisease = diseaseSlug;
-  setText("scarlink-caption", `${gene} in ${payload.disease}`);
+  setText("scarlink-caption", `${gene} in ${payload.disease} | ${payload.summary?.query_region || "query"}`);
   drawScarlinkCircle(payload);
   drawScarlinkBoxplot(payload);
   renderScarlinkTable(payload);
@@ -496,7 +579,9 @@ async function init() {
   document.getElementById("scarlink-disease").addEventListener("change", async () => {
     const gene = document.getElementById("scarlink-gene").value;
     const payload = await loadScarlinkPayload(gene, document.getElementById("scarlink-disease").value);
-    setText("scarlink-caption", `${gene} in ${payload.disease}`);
+    state.currentScarlinkGene = gene;
+    state.currentScarlinkDisease = document.getElementById("scarlink-disease").value;
+    setText("scarlink-caption", `${gene} in ${payload.disease} | ${payload.summary?.query_region || "query"}`);
     drawScarlinkCircle(payload);
     drawScarlinkBoxplot(payload);
     renderScarlinkTable(payload);

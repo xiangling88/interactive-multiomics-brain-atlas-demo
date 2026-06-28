@@ -16,9 +16,11 @@ import h5py
 import numpy as np
 import pandas as pd
 
+
 APP_ROOT = Path(__file__).resolve().parents[1]
-ATLAS_ROOT = APP_ROOT.parent
-WORK_ROOT = APP_ROOT.parents[2]
+SOURCE_ROOT = APP_ROOT.parent
+PROJECT_ROOT = APP_ROOT.parents[1]
+WORK_ROOT = APP_ROOT.parents[3]
 DEFAULT_OUT = APP_ROOT / "docs" / "data"
 DEFAULT_GENE_FILE = APP_ROOT / "demo_genes.txt"
 
@@ -27,6 +29,13 @@ PRIORITY_GENES = [
     "CNTNAP2", "ZFHX4", "ZNF98", "SGCD", "STXBP6", "SLC39A12", "RMST", "CLYBL",
     "RIMS1", "RARB", "LRRC3B", "TLE1", "GFRA1", "WDR17", "LINC02328", "AGBL1",
     "NINL", "ARHGAP24",
+]
+
+EXTRA_FEATURE_GENES = [
+    "SOX6", "GFAP", "AQP4", "ALDH1L1", "SLC1A2", "SLC1A3", "C3", "VIM", "CHI3L1",
+    "P2RY12", "CX3CR1", "CSF1R", "TREM2", "AIF1", "TYROBP", "APOE", "SPP1",
+    "MBP", "PLP1", "MOG", "MAG", "MOBP", "PDGFRA", "CSPG4", "SOX10", "VCAN",
+    "RBFOX3", "SLC17A7", "SLC17A6", "GAD1", "GAD2", "CAMK2A", "RELN", "VIP",
 ]
 
 PLOT_PALETTE = [
@@ -56,9 +65,9 @@ MODULES: dict[str, ModuleConfig] = {
     "whole_brain": ModuleConfig(
         key="whole_brain",
         label="Whole Brain",
-        h5mu_path=ATLAS_ROOT / "fc_feature_mdata" / "epoch_2000_mdata.h5mu",
-        embedding_path=APP_ROOT / "embedding" / "epoch_2000_mdata_embedding_umap.npz",
-        meta_path=APP_ROOT / "meta" / "epoch_2000_mdata_meta_all.txt",
+        h5mu_path=PROJECT_ROOT / "fc_feature_mdata" / "epoch_2000_mdata.h5mu",
+        embedding_path=SOURCE_ROOT / "embedding" / "epoch_2000_mdata_embedding_umap.npz",
+        meta_path=SOURCE_ROOT / "meta" / "epoch_2000_mdata_meta_all.txt",
         subtype_candidates=("L1_CELL_TYPE_NEW", "celltype_r2"),
         sample_candidates=("DONOR_ID",),
         marker_seeds=("AQP4", "P2RY12", "MBP", "PLP1", "SLC17A7", "GAD1", "RBFOX3", "PDGFRA", "SOX6", "APOE", "CLU"),
@@ -66,29 +75,29 @@ MODULES: dict[str, ModuleConfig] = {
     "microglia": ModuleConfig(
         key="microglia",
         label="Microglia",
-        h5mu_path=ATLAS_ROOT / "fc_feature_mdata" / "microglia" / "microglia_multimodal_0402.h5mu",
-        embedding_path=APP_ROOT / "embedding" / "microglia_embedding_umap.npz",
-        meta_path=APP_ROOT / "meta" / "microglia_multimodal_0605_meta_all.txt",
+        h5mu_path=PROJECT_ROOT / "fc_feature_mdata" / "microglia" / "microglia_multimodal_0402.h5mu",
+        embedding_path=PROJECT_ROOT / "fc_feature_mdata" / "web_data" / "microglia_embedding_umap.npz",
+        meta_path=SOURCE_ROOT / "meta" / "microglia_multimodal_0605_meta_all.txt",
         subtype_candidates=("celltype_leiden_res2.0gpt", "celltype_r2"),
         sample_candidates=("DONOR_ID", "sample", "orig.ident"),
-        marker_seeds=("P2RY12", "CX3CR1", "AIF1", "CSF1R", "C1QA", "C1QB", "TREM2", "LPL", "APOE", "SPP1", "TYROBP"),
+        marker_seeds=("P2RY12", "CX3CR1", "AIF1", "CSF1R", "C1QA", "C1QB", "TREM2", "LPL", "APOE", "SPP1", "TYROBP", "SOX6"),
     ),
     "astrocyte": ModuleConfig(
         key="astrocyte",
         label="Astrocyte",
-        h5mu_path=ATLAS_ROOT / "fc_feature_mdata" / "Astrocytes_0525_drop.h5mu",
-        embedding_path=APP_ROOT / "embedding" / "Astrocytes_0525_drop_embedding_umap.npz",
-        meta_path=APP_ROOT / "meta" / "Astrocytes_0525_drop_meta_all_0605.txt",
+        h5mu_path=PROJECT_ROOT / "fc_feature_mdata" / "Astrocytes_0525_drop.h5mu",
+        embedding_path=PROJECT_ROOT / "fc_feature_mdata" / "web_data" / "Astrocytes_0525_drop_embedding_umap.npz",
+        meta_path=PROJECT_ROOT / "fc_feature_mdata" / "Astrocytes" / "Astrocytes_0608_renamemy_meta.csv",
         subtype_candidates=("celltype_astro_my", "astro_annotation", "celltype_r2"),
         sample_candidates=("DONOR_ID", "sample", "orig.ident"),
-        marker_seeds=("AQP4", "ALDH1L1", "SLC1A2", "SLC1A3", "GFAP", "CD44", "VIM", "C3", "SERPINA3", "CHI3L1", "APOE", "CLU"),
+        marker_seeds=("AQP4", "ALDH1L1", "SLC1A2", "SLC1A3", "GFAP", "CD44", "VIM", "C3", "SERPINA3", "CHI3L1", "APOE", "CLU", "SOX6"),
     ),
     "oligo_opc": ModuleConfig(
         key="oligo_opc",
         label="Oligodendrocyte-OPC",
-        h5mu_path=ATLAS_ROOT / "fc_feature_mdata" / "Oligo_OPC_0508.h5mu",
-        embedding_path=APP_ROOT / "embedding" / "Oligo_opc_embedding_umap.npz",
-        meta_path=APP_ROOT / "meta" / "Oligo_opc_meta_0605.txt",
+        h5mu_path=PROJECT_ROOT / "fc_feature_mdata" / "Oligo_OPC_0508.h5mu",
+        embedding_path=PROJECT_ROOT / "fc_feature_mdata" / "web_data" / "Oligo_opc_embedding_umap.npz",
+        meta_path=SOURCE_ROOT / "meta" / "Oligo_opc_meta_0605.txt",
         subtype_candidates=("celltype_r2", "celltype_ol_sub"),
         sample_candidates=("DONOR_ID", "sample", "orig.ident"),
         marker_seeds=("MBP", "PLP1", "MOG", "MOBP", "MAG", "OLIG1", "OLIG2", "SOX10", "PDGFRA", "VCAN", "CSPG4"),
@@ -96,12 +105,12 @@ MODULES: dict[str, ModuleConfig] = {
     "neuron": ModuleConfig(
         key="neuron",
         label="Neuron",
-        h5mu_path=ATLAS_ROOT / "fc_feature_mdata" / "Neuron" / "Neuron_0601.h5mu",
-        embedding_path=APP_ROOT / "embedding" / "Neuron_0601_embedding_umap.npz",
-        meta_path=APP_ROOT / "meta" / "Neuron_meta_all.txt",
+        h5mu_path=PROJECT_ROOT / "fc_feature_mdata" / "Neuron" / "Neuron_0601.h5mu",
+        embedding_path=PROJECT_ROOT / "fc_feature_mdata" / "web_data" / "Neuron_0601_embedding_umap.npz",
+        meta_path=PROJECT_ROOT / "fc_feature_mdata" / "web_data" / "Neuron_meta_all.txt",
         subtype_candidates=("celltype_r2", "L1_CELL_TYPE_NEW"),
         sample_candidates=("DONOR_ID", "sample", "orig.ident"),
-        marker_seeds=("SLC17A7", "SLC17A6", "GAD1", "GAD2", "RBFOX3", "SYT1", "SNAP25", "GRIN1", "CAMK2A", "SATB2", "RELN", "VIP"),
+        marker_seeds=("SLC17A7", "SLC17A6", "GAD1", "GAD2", "RBFOX3", "SYT1", "SNAP25", "GRIN1", "CAMK2A", "SATB2", "RELN", "VIP", "SOX6"),
     ),
 }
 
@@ -156,6 +165,61 @@ def decode_h5(values: np.ndarray) -> list[str]:
         else:
             out.append(str(value))
     return out
+
+
+
+
+def chrom_sort_key(chrom: str) -> tuple[int, str]:
+    label = chrom.replace("chr", "")
+    if label.isdigit():
+        return (0, f"{int(label):02d}")
+    if label == "X":
+        return (1, label)
+    if label == "Y":
+        return (2, label)
+    if label in {"M", "MT"}:
+        return (3, label)
+    return (4, label)
+
+
+def parse_peak_chrom(peak: str) -> str | None:
+    match = re.match(r"^(chr[0-9A-Za-z_]+)", str(peak))
+    return match.group(1) if match else None
+
+
+def choose_balanced_atac_features(atac_names: list[str], max_atac: int, per_chrom: int = 10) -> list[str]:
+    grouped: dict[str, list[str]] = defaultdict(list)
+    fallback: list[str] = []
+    for peak in atac_names:
+        chrom = parse_peak_chrom(peak)
+        if not chrom:
+            if len(fallback) < per_chrom:
+                fallback.append(peak)
+            continue
+        bucket = grouped[chrom]
+        if len(bucket) < per_chrom:
+            bucket.append(peak)
+    ordered: list[str] = []
+    chroms = sorted(grouped, key=chrom_sort_key)
+    level = 0
+    while len(ordered) < max_atac:
+        added = False
+        for chrom in chroms:
+            bucket = grouped[chrom]
+            if level < len(bucket):
+                ordered.append(bucket[level])
+                added = True
+                if len(ordered) >= max_atac:
+                    break
+        if not added:
+            break
+        level += 1
+    for peak in fallback:
+        if len(ordered) >= max_atac:
+            break
+        if peak not in ordered:
+            ordered.append(peak)
+    return ordered[:max_atac]
 
 
 def get_var_names(handle: h5py.File, modality: str) -> list[str]:
@@ -237,19 +301,15 @@ def build_feature_lists(module: ModuleConfig, handle: h5py.File, max_rna: int, m
     rna_names = get_var_names(handle, "rna")
     atac_names = get_var_names(handle, "atac")
     rna_lookup = {x.upper(): x for x in rna_names}
-    rna = []
-    for gene in PRIORITY_GENES + list(module.marker_seeds) + extra_genes + rna_names[:1200]:
-        hit = rna_lookup.get(gene.upper(), gene if gene in rna_names else None)
+    rna: list[str] = []
+    seeds = PRIORITY_GENES + EXTRA_FEATURE_GENES + list(module.marker_seeds) + extra_genes + rna_names[:2000]
+    for gene in seeds:
+        hit = rna_lookup.get(str(gene).upper(), gene if gene in rna_names else None)
         if hit and hit not in rna:
             rna.append(hit)
         if len(rna) >= max_rna:
             break
-    atac = []
-    for peak in atac_names[:max_atac * 20]:
-        if peak not in atac:
-            atac.append(peak)
-        if len(atac) >= max_atac:
-            break
+    atac = choose_balanced_atac_features(atac_names, max_atac=max_atac, per_chrom=10)
     return rna[:max_rna], atac[:max_atac]
 
 
@@ -559,7 +619,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--module", default="all", choices=["all", *MODULES.keys()])
     parser.add_argument("--max-cells-per-module", type=int, default=100000)
     parser.add_argument("--max-rna-features", type=int, default=50)
-    parser.add_argument("--max-atac-features", type=int, default=20)
+    parser.add_argument("--max-atac-features", type=int, default=240)
     parser.add_argument("--target-data-mb", type=int, default=350)
     parser.add_argument("--full-embedding", action="store_true")
     parser.add_argument("--max-total-docs-mb", type=int, default=800)
