@@ -409,7 +409,7 @@ function drawScarlinkCircle(data) {
     const label = `${row.gene} ${formatCoord(row.start)}-${formatCoord(row.end)}`;
     svg += `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="10" fill="${scarlinkLinkColor(row)}" opacity="0.92"/>`;
     svg += `<text x="${p.x.toFixed(2)}" y="${(p.y + 3.5).toFixed(2)}" text-anchor="middle" font-size="10" font-weight="700" fill="white">${idx + 1}</text>`;
-    svg += `<text x="${(560).toFixed(2)}" y="${(278 + idx * 24).toFixed(2)}" font-size="12" fill="#344054">${idx + 1}. ${escHtml(label)} | FDR ${row.fdr}</text>`;
+    svg += `<text x="${(560).toFixed(2)}" y="${(314 + idx * 22).toFixed(2)}" font-size="12" fill="#344054">${idx + 1}. ${escHtml(label)} | FDR ${row.fdr}</text>`;
   });
   svg += `<text x="560" y="72" font-size="15" font-weight="700" fill="#1f2937">Track legend</text>`;
   [
@@ -424,7 +424,7 @@ function drawScarlinkCircle(data) {
   });
   svg += `<text x="560" y="252" font-size="15" font-weight="700" fill="#1f2937">Top 5 contacts</text>`;
   svg += `<text x="560" y="274" font-size="12" fill="#667085">Link color intensity scales with -log10(FDR).</text>`;
-  svg += `<text x="560" y="298" font-size="12" fill="#667085">Showing ${Math.min(links.length, 120)} links; top 5 are labeled around the ring.</text>`;
+  svg += `<text x="560" y="300" font-size="12" fill="#667085">Showing ${Math.min(links.length, 120)} links; top 5 are labeled around the ring.</text>`;
   svg += `</svg>`;
   el.innerHTML = svg;
 }
@@ -505,14 +505,37 @@ async function renderReference() {
   const {summary, example, heatmap} = await loadReference();
   setText("view-title", "Reference mapping");
   setText("view-subtitle", summary.description);
-  document.getElementById("module-note").textContent = `Example concordance ${(Number(summary.example_concordance || 0) * 100).toFixed(1)}%`;
-  document.getElementById("markers-panel").innerHTML = `<div class="marker-group">Reference mapping now includes a label-concordance heatmap based on atlas second_label and a query example from the GSE180928 Huntington disease label set.</div>`;
+  document.getElementById("module-note").textContent = `C5832Cd concordance ${(Number(summary.example_concordance || 0) * 100).toFixed(1)}% | ${summary.reference_label || "atlas second_label"}`;
+  document.getElementById("markers-panel").innerHTML = `<div class="marker-group">Reference mapping uses the C5832Cd Huntington disease query labels, standardizes Inhibitory into Neuron, and compares the result with atlas second_label families. The layout below keeps the original query / transfer / concordance story compact for GitHub Pages.</div>`;
   renderSummaryCards({n_exported_cells: summary.modules.length, n_total_source_cells: summary.modules.length, n_subtypes: "Workflow", n_diseases: "Static"}, "Summary", "Table");
+  const queryDataset = escHtml(summary.query_dataset || "C5832Cd");
+  const standardization = (summary.query_standardization || []).map((rule) => `<span class="ref-chip">${escHtml(rule)}</span>`).join("");
   document.getElementById("reference-layout").innerHTML = `
     <div class="reference-grid">
-      <div class="plot-card reference-panel">
-        <div class="plot-card-head"><h3>Workflow</h3><span>Static summary</span></div>
-        <ol>${summary.workflow.map((step) => `<li>${escHtml(step)}</li>`).join("")}</ol>
+      <div class="plot-card reference-panel reference-flow-panel">
+        <div class="plot-card-head"><h3>Workflow</h3><span>${escHtml(summary.reference_label || "atlas second_label")} transfer overview</span></div>
+        <div class="reference-flow">
+          <div class="reference-node reference-node-source">
+            <strong>${queryDataset}</strong>
+            <span>Query label space</span>
+            <small>Standardize raw Cluster labels</small>
+          </div>
+          <div class="reference-arrow">→</div>
+          <div class="reference-node reference-node-target">
+            <strong>Atlas</strong>
+            <span>${escHtml(summary.reference_label || "second_label")}</span>
+            <small>Reference family set</small>
+          </div>
+        </div>
+        <div class="reference-note">
+          <div class="ref-chip-row">${standardization}</div>
+          <p>${escHtml(summary.workflow?.[0] || "Load the query label set and compare with atlas families.")}</p>
+          <p>${escHtml(summary.workflow?.[1] || "Compare transferred labels against the reference atlas.")}</p>
+          <p>${escHtml(summary.workflow?.[4] || "Potential next step: MIDAS-style joint training for missing-modality completion.")}</p>
+          <ol>
+            ${(summary.workflow || []).map((step) => `<li>${escHtml(step)}</li>`).join("")}
+          </ol>
+        </div>
       </div>
       <div class="plot-card reference-panel">
         <div class="plot-card-head"><h3>Example mapping table</h3><span>Exported modules</span></div>

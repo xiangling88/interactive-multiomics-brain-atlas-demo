@@ -46,6 +46,7 @@ PLOT_PALETTE = [
 DISPLAY_META_FIELDS = ["subtype", "disease", "sample", "RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"]
 RL_FIELDS = ["RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"]
 DANGEROUS_PATTERNS = [re.compile(p, re.I) for p in ["author", "institution", "server", "path", "patient", "subject"]]
+WHOLE_BRAIN_ALIGNMENT_PATH = PROJECT_ROOT / "fc_feature_mdata" / "tmp.feather_new.txt"
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,15 @@ def clean_value(value: object) -> str:
     return text[:120]
 
 
+def is_missing_like(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, float) and math.isnan(value):
+        return True
+    text = str(value).strip().lower()
+    return text in {"", "na", "nan", "none", "<na>"}
+
+
 def slugify(value: str) -> str:
     text = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
     return text.strip("_") or "feature"
@@ -147,6 +157,29 @@ def read_meta(path: Path) -> pd.DataFrame:
     meta = pd.read_csv(path, sep=sep, index_col=0, low_memory=False)
     meta.columns = [str(c).strip() for c in meta.columns]
     return meta
+
+
+def align_whole_brain_meta(meta: pd.DataFrame) -> pd.DataFrame:
+    if not WHOLE_BRAIN_ALIGNMENT_PATH.exists():
+        return meta
+    align = pd.read_csv(
+        WHOLE_BRAIN_ALIGNMENT_PATH,
+        sep="\t",
+        usecols=["Unnamed: 0", "second_label", "celltype_r2"],
+        low_memory=False,
+    )
+    n = min(len(meta), len(align))
+    aligned = meta.iloc[:n].copy().reset_index(drop=True)
+    align = align.iloc[:n].copy().reset_index(drop=True)
+    aligned.index = align["Unnamed: 0"].astype(str).tolist()
+    if "second_label" in aligned.columns and "celltype_r2" in align.columns:
+        filled = aligned["second_label"].astype(object).to_numpy(copy=True)
+        fill_mask = np.array([is_missing_like(value) for value in filled], dtype=bool)
+        filled[fill_mask] = align.loc[fill_mask, "celltype_r2"].map(clean_value).to_numpy()
+        aligned["second_label"] = pd.Series(filled, index=aligned.index).map(clean_value)
+    if "celltype_r2" in aligned.columns:
+        aligned["celltype_r2"] = align["celltype_r2"].map(clean_value)
+    return aligned
 
 
 def load_embedding(path: Path) -> np.ndarray:
@@ -280,6 +313,12 @@ def choose_disease_field(meta: pd.DataFrame) -> str | None:
 def atlas_reference_family(label: str) -> str:
     text = str(label).strip()
     normalized = re.sub(r"[\s_/()-]+", " ", text).lower()
+    if "bergmann" in normalized:
+        return "Bergmann glia"
+    if "choroid plexus" in normalized:
+        return "Choroid plexus"
+    if "mammillary" in normalized:
+        return "Mammillary body"
     if "endothelial" in normalized:
         return "Vascular cells"
     if "oligodendrocytes precursor" in normalized or "opc" in normalized or "oligodendrocyte precursor" in normalized:
@@ -303,35 +342,61 @@ def atlas_reference_family(label: str) -> str:
     return "Unassigned"
 
 
+def standardize_query_label(label: str) -> str:
+    text = str(label).strip()
+    norm = re.sub(r"[\s_/()-]+", " ", text).lower()
+    if not norm or norm in {"nan", "na", "none"}:
+        return "Unassigned"
+    if "astro" in norm:
+        return "Astrocytes"
+    if "microglia" in norm:
+        return "Microglia"
+    if "oligodendrocyte" in norm or "oligo" in norm:
+        return "Oligodendrocytes"
+    if "ependymal" in norm:
+        return "Ependymal"
+    if "endothelial" in norm or "vascular" in norm:
+        return "Endothelial"
+    if "inhibitory" in norm:
+        return "Neuron"
+    if "neuron" in norm or "excitatory" in norm:
+        return "Neuron"
+    if "opc" in norm or "oligodendrocytes precursor" in norm:
+        return "Oligodendrocytes"
+    return text
+
+
 def build_reference_heatmap_payload(atlas_meta: pd.DataFrame, query_meta: pd.DataFrame) -> dict[str, object]:
-    atlas_counts = atlas_meta["second_label"].astype(str).str.strip().value_counts()
+    atlas_reference = atlas_meta.copy()
+    atlas_second = atlas_reference["second_label"].map(clean_value) if "second_label" in atlas_reference.columns else pd.Series(["NA"] * len(atlas_reference))
+    if "celltype_r2" in atlas_reference.columns:
+        fill_mask = atlas_second.map(is_missing_like)
+        atlas_second.loc[fill_mask] = atlas_reference.loc[fill_mask, "celltype_r2"].map(clean_value)
+    atlas_second = atlas_second.map(atlas_reference_family)
+    atlas_counts = atlas_second.value_counts()
     atlas_labels = [
         "Oligodendrocyte",
+        "Oligodendrocytes precursor",
         "Excitatory neuron(Glutamatergic)",
         "Inhibitory neuron(GABA)",
         "Astrocyte",
         "Microglia",
-        "Vascular cells",
-        "Oligodendrocytes precursor",
         "Ependymal",
-        "Immune cells",
-        "Stromal cell",
-        "Mesenchymal",
-        "Unassigned",
+        "Vascular cells",
     ]
-    atlas_labels = [lab for lab in atlas_labels if lab in atlas_counts.index or lab == "Unassigned"]
-    query_counts = query_meta["Cluster"].astype(str).str.strip().value_counts()
+    atlas_labels = [lab for lab in atlas_labels if lab in atlas_counts.index]
+
+    query_counts = query_meta["Cluster"].astype(str).str.strip().map(standardize_query_label).value_counts()
     rows = []
     matrix: list[list[float]] = []
     texts: list[list[str]] = []
     manual_scores = {
         "Oligodendrocytes": {"Oligodendrocyte": 0.92, "Oligodendrocytes precursor": 0.08},
-        "Neuron": {"Excitatory neuron(Glutamatergic)": 0.60, "Inhibitory neuron(GABA)": 0.40},
-        "Astrocytes": {"Astrocyte": 0.98, "Unassigned": 0.02},
-        "Microglia": {"Microglia": 0.99, "Immune cells": 0.01},
-        "Inhibitory": {"Inhibitory neuron(GABA)": 0.97, "Excitatory neuron(Glutamatergic)": 0.03},
-        "Ependymal": {"Ependymal": 0.99, "Unassigned": 0.01},
-        "Endothelial": {"Vascular cells": 0.98, "Stromal cell": 0.02},
+        "Neuron": {"Excitatory neuron(Glutamatergic)": 0.63, "Inhibitory neuron(GABA)": 0.37},
+        "Astrocytes": {"Astrocyte": 0.98, "Bergmann glia": 0.02},
+        "Microglia": {"Microglia": 0.99},
+        "Ependymal": {"Ependymal": 0.99},
+        "Endothelial": {"Vascular cells": 0.98},
     }
     overall = 0.0
     total = int(query_counts.sum()) if len(query_counts) else 1
@@ -344,10 +409,6 @@ def build_reference_heatmap_payload(atlas_meta: pd.DataFrame, query_meta: pd.Dat
             score = manual_scores.get(query_label, {}).get(atlas_label, 0.0)
             if score == 0.0 and atlas_label == family:
                 score = 1.0
-            if query_label == "Neuron" and atlas_label in {"Excitatory neuron(Glutamatergic)", "Inhibitory neuron(GABA)"}:
-                score = manual_scores["Neuron"][atlas_label]
-            if query_label in {"Oligodendrocytes", "Astrocytes", "Microglia", "Inhibitory", "Ependymal", "Endothelial"}:
-                score = manual_scores[query_label].get(atlas_label, score)
             row.append(round(float(score), 3))
             txt.append(f"{score:.2f}" if score else "")
             best = max(best, score)
@@ -358,18 +419,22 @@ def build_reference_heatmap_payload(atlas_meta: pd.DataFrame, query_meta: pd.Dat
             "n_cells": int(n_cells),
             "best_atlas_second_label": family,
             "best_match_score": round(float(best), 3),
+            "note": "Inhibitory cells are merged into Neuron for the demo concordance summary." if query_label == "Neuron" else "",
         })
         overall += best * int(n_cells)
     return {
         "title": "Reference mapping example",
-        "description": "Static label-concordance example comparing the query l1.csv labels against atlas second_label families.",
+        "description": "Static label-concordance example comparing the C5832Cd query labels against atlas second_label families.",
+        "query_dataset": "GSE180928_Huntington_disease / C5832Cd",
+        "query_standardization": ["Inhibitory -> Neuron"],
+        "reference_label": "atlas second_label",
         "query_labels": list(query_counts.index),
         "atlas_second_labels": atlas_labels,
         "matrix": matrix,
         "text": texts,
         "rows": rows,
         "overall_concordance": round(overall / max(total, 1), 4),
-        "note": "This is a curated concordance example for the demo interface, not a transfer-learning benchmark.",
+        "note": "This is a curated concordance example for the demo interface, not a transfer-learning benchmark. Atlas second_label families are used as the reference view, and unmatched atlas categories are omitted.",
     }
 
 
@@ -625,6 +690,8 @@ def export_module(module: ModuleConfig, args: argparse.Namespace, planned_cells:
     out_dir = Path(args.out) / module.key
     out_dir.mkdir(parents=True, exist_ok=True)
     meta = read_meta(module.meta_path)
+    if module.key == "whole_brain":
+        meta = align_whole_brain_meta(meta)
     embedding = load_embedding(module.embedding_path)
     n = min(len(meta), embedding.shape[0])
     warnings: list[str] = []
@@ -705,17 +772,21 @@ def export_reference_mapping(out_root: Path, modules: list[dict[str, object]]) -
         "title": "Reference mapping",
         "description": "Static summary of the reference mapping workflow used in the atlas browser. The example heatmap uses atlas second_label as the reference label set.",
         "workflow": [
-            "Load harmonized embedding and subtype-level metadata.",
-            "Project query cells into reference UMAP coordinates.",
+            "Load the C5832Cd query label set and standardize Inhibitory as Neuron.",
+            "Use atlas second_label as the reference family set.",
             "Compare transferred subtype labels with RNA and ATAC feature overlays.",
             "Review subtype-level agreement and disease composition in static tables.",
+            "Potential next step: MIDAS-style joint training for missing-modality completion.",
         ],
         "example_concordance": heatmap["overall_concordance"],
+        "query_dataset": heatmap["query_dataset"],
+        "reference_label": heatmap["reference_label"],
+        "query_standardization": heatmap["query_standardization"],
         "modules": [{"module": m["module"], "label": m["label"], "n_exported_cells": m["n_exported_cells"]} for m in modules],
     })
     write_json(ref_dir / "example_mapping.json", {
-        "columns": ["query_module", "reference_view", "default_label_field", "n_exported_cells", "note"],
-        "rows": [[m["label"], "Shared UMAP", m["subtype_field"], m["n_exported_cells"], "Downsampled demo view"] for m in modules],
+        "columns": ["standardized_query_label", "reference_family", "n_cells", "best_match_score", "note"],
+        "rows": [[row["query_label"], row["best_atlas_second_label"], row["n_cells"], row["best_match_score"], row["note"]] for row in heatmap["rows"]],
     })
     write_json(ref_dir / "heatmap.json", heatmap)
 
