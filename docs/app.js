@@ -409,7 +409,7 @@ function drawScarlinkCircle(data) {
     const label = `${row.gene} ${formatCoord(row.start)}-${formatCoord(row.end)}`;
     svg += `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="10" fill="${scarlinkLinkColor(row)}" opacity="0.92"/>`;
     svg += `<text x="${p.x.toFixed(2)}" y="${(p.y + 3.5).toFixed(2)}" text-anchor="middle" font-size="10" font-weight="700" fill="white">${idx + 1}</text>`;
-    svg += `<text x="${(560).toFixed(2)}" y="${(118 + idx * 28).toFixed(2)}" font-size="12" fill="#344054">${idx + 1}. ${escHtml(label)} | FDR ${row.fdr}</text>`;
+    svg += `<text x="${(560).toFixed(2)}" y="${(278 + idx * 24).toFixed(2)}" font-size="12" fill="#344054">${idx + 1}. ${escHtml(label)} | FDR ${row.fdr}</text>`;
   });
   svg += `<text x="560" y="72" font-size="15" font-weight="700" fill="#1f2937">Track legend</text>`;
   [
@@ -422,9 +422,9 @@ function drawScarlinkCircle(data) {
     const y = 94 + idx * 24;
     svg += `<rect x="560" y="${y - 10}" width="16" height="10" rx="2" fill="${row[0]}"/><text x="584" y="${y - 1}" font-size="12" fill="#344054">${row[1]}</text>`;
   });
-  svg += `<text x="560" y="248" font-size="15" font-weight="700" fill="#1f2937">Top 5 contacts</text>`;
-  svg += `<text x="560" y="270" font-size="12" fill="#667085">Link color intensity scales with -log10(FDR).</text>`;
-  svg += `<text x="560" y="294" font-size="12" fill="#667085">Showing ${Math.min(links.length, 120)} links; top 5 are labeled around the ring.</text>`;
+  svg += `<text x="560" y="252" font-size="15" font-weight="700" fill="#1f2937">Top 5 contacts</text>`;
+  svg += `<text x="560" y="274" font-size="12" fill="#667085">Link color intensity scales with -log10(FDR).</text>`;
+  svg += `<text x="560" y="298" font-size="12" fill="#667085">Showing ${Math.min(links.length, 120)} links; top 5 are labeled around the ring.</text>`;
   svg += `</svg>`;
   el.innerHTML = svg;
 }
@@ -488,8 +488,12 @@ async function renderScarlink() {
 }
 
 async function loadReference() {
-  const [summary, example] = await Promise.all([getJSON("data/reference_mapping/summary.json"), getJSON("data/reference_mapping/example_mapping.json")]);
-  return {summary, example};
+  const [summary, example, heatmap] = await Promise.all([
+    getJSON("data/reference_mapping/summary.json"),
+    getJSON("data/reference_mapping/example_mapping.json"),
+    getJSON("data/reference_mapping/heatmap.json"),
+  ]);
+  return {summary, example, heatmap};
 }
 
 async function renderReference() {
@@ -498,21 +502,65 @@ async function renderReference() {
   document.getElementById("atlas-layout").classList.add("hidden");
   document.getElementById("scarlink-layout").classList.add("hidden");
   document.getElementById("reference-layout").classList.remove("hidden");
-  const {summary, example} = await loadReference();
+  const {summary, example, heatmap} = await loadReference();
   setText("view-title", "Reference mapping");
   setText("view-subtitle", summary.description);
-  document.getElementById("module-note").textContent = "Static summary panel for reference mapping workflow.";
-  document.getElementById("markers-panel").innerHTML = `<div class="marker-group">Reference mapping is shown as a static workflow summary in this GitHub Pages deployment.</div>`;
+  document.getElementById("module-note").textContent = `Example concordance ${(Number(summary.example_concordance || 0) * 100).toFixed(1)}%`;
+  document.getElementById("markers-panel").innerHTML = `<div class="marker-group">Reference mapping now includes a label-concordance heatmap based on atlas second_label and a query example from the GSE180928 Huntington disease label set.</div>`;
   renderSummaryCards({n_exported_cells: summary.modules.length, n_total_source_cells: summary.modules.length, n_subtypes: "Workflow", n_diseases: "Static"}, "Summary", "Table");
   document.getElementById("reference-layout").innerHTML = `
-    <div class="plot-card reference-panel">
-      <div class="plot-card-head"><h3>Workflow</h3><span>Static summary</span></div>
-      <ol>${summary.workflow.map((step) => `<li>${escHtml(step)}</li>`).join("")}</ol>
-    </div>
-    <div class="plot-card reference-panel" style="margin-top:1rem;">
-      <div class="plot-card-head"><h3>Example mapping table</h3><span>Exported modules</span></div>
-      <div class="table-wrap"><table><thead><tr>${example.columns.map((c) => `<th>${escHtml(c)}</th>`).join("")}</tr></thead><tbody>${example.rows.map((row) => `<tr>${row.map((x) => `<td>${escHtml(x)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+    <div class="reference-grid">
+      <div class="plot-card reference-panel">
+        <div class="plot-card-head"><h3>Workflow</h3><span>Static summary</span></div>
+        <ol>${summary.workflow.map((step) => `<li>${escHtml(step)}</li>`).join("")}</ol>
+      </div>
+      <div class="plot-card reference-panel">
+        <div class="plot-card-head"><h3>Example mapping table</h3><span>Exported modules</span></div>
+        <div class="table-wrap"><table><thead><tr>${example.columns.map((c) => `<th>${escHtml(c)}</th>`).join("")}</tr></thead><tbody>${example.rows.map((row) => `<tr>${row.map((x) => `<td>${escHtml(x)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+      </div>
     </div>`;
+  if ((heatmap.query_labels || []).length && (heatmap.atlas_second_labels || []).length) {
+    document.getElementById("reference-layout").innerHTML += `
+      <div class="plot-card reference-panel reference-heatmap-panel">
+        <div class="plot-card-head"><h3>Example concordance heatmap</h3><span>Query l1 labels vs atlas second_label families</span></div>
+        <div id="reference-heatmap" class="plot reference-heatmap"></div>
+      </div>
+    `;
+    Plotly.react("reference-heatmap", [{
+      type: "heatmap",
+      x: heatmap.atlas_second_labels,
+      y: heatmap.query_labels,
+      z: heatmap.matrix,
+      text: heatmap.text,
+      hovertemplate: "Query: %{y}<br>Atlas: %{x}<br>Score: %{z:.2f}<extra></extra>",
+      colorscale: [
+        [0, "#f7fbff"],
+        [0.2, "#d7e8f8"],
+        [0.45, "#9ecae1"],
+        [0.7, "#4f8fc8"],
+        [1, "#173f5f"],
+      ],
+      zmin: 0,
+      zmax: 1,
+      colorbar: {title: "Concordance"},
+    }], {
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "white",
+      margin: {l: 170, r: 24, t: 20, b: 120},
+      xaxis: {tickangle: -35, automargin: true},
+      yaxis: {automargin: true},
+      annotations: (heatmap.rows || []).map((row, idx) => ({
+        xref: "paper",
+        yref: "paper",
+        x: 1.02,
+        y: 1 - idx * 0.14,
+        text: `${escHtml(row.query_label)}: ${(Number(row.best_match_score || 0) * 100).toFixed(0)}%`,
+        showarrow: false,
+        align: "left",
+        font: {size: 12, color: "#344054"},
+      })),
+    }, {responsive: true, displayModeBar: false});
+  }
 }
 
 async function switchModule(moduleKey) {

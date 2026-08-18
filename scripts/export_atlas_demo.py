@@ -66,9 +66,9 @@ MODULES: dict[str, ModuleConfig] = {
         key="whole_brain",
         label="Whole Brain",
         h5mu_path=PROJECT_ROOT / "fc_feature_mdata" / "epoch_2000_mdata.h5mu",
-        embedding_path=SOURCE_ROOT / "embedding" / "epoch_2000_mdata_embedding_umap.npz",
+        embedding_path=SOURCE_ROOT / "embedding" / "PTSD_feature5000_epoch2000_0725_rename_X_umap_embedding_umap.npz",
         meta_path=SOURCE_ROOT / "meta" / "epoch_2000_mdata_meta_all.txt",
-        subtype_candidates=("L1_CELL_TYPE_NEW", "celltype_r2"),
+        subtype_candidates=("second_label", "L1_CELL_TYPE_NEW", "celltype_r2"),
         sample_candidates=("DONOR_ID",),
         marker_seeds=("AQP4", "P2RY12", "MBP", "PLP1", "SLC17A7", "GAD1", "RBFOX3", "PDGFRA", "SOX6", "APOE", "CLU"),
     ),
@@ -86,8 +86,8 @@ MODULES: dict[str, ModuleConfig] = {
         key="astrocyte",
         label="Astrocyte",
         h5mu_path=PROJECT_ROOT / "fc_feature_mdata" / "Astrocytes_0525_drop.h5mu",
-        embedding_path=PROJECT_ROOT / "fc_feature_mdata" / "web_data" / "Astrocytes_0525_drop_embedding_umap.npz",
-        meta_path=PROJECT_ROOT / "fc_feature_mdata" / "Astrocytes" / "Astrocytes_0608_renamemy_meta.csv",
+        embedding_path=SOURCE_ROOT / "embedding" / "Astrocytes_0608_rna_atac_midas_umap_embedding_umap.npz",
+        meta_path=SOURCE_ROOT / "meta" / "Astrocytes_0525_drop_meta_all_new.txt",
         subtype_candidates=("celltype_astro_my", "astro_annotation", "celltype_r2"),
         sample_candidates=("DONOR_ID", "sample", "orig.ident"),
         marker_seeds=("AQP4", "ALDH1L1", "SLC1A2", "SLC1A3", "GFAP", "CD44", "VIM", "C3", "SERPINA3", "CHI3L1", "APOE", "CLU", "SOX6"),
@@ -141,7 +141,10 @@ def slugify(value: str) -> str:
 
 
 def read_meta(path: Path) -> pd.DataFrame:
-    meta = pd.read_csv(path, sep="\t", index_col=0, low_memory=False)
+    with path.open("r", encoding="utf-8", errors="ignore") as fh:
+        first_line = fh.readline()
+    sep = "\t" if first_line.count("\t") >= first_line.count(",") else ","
+    meta = pd.read_csv(path, sep=sep, index_col=0, low_memory=False)
     meta.columns = [str(c).strip() for c in meta.columns]
     return meta
 
@@ -272,6 +275,102 @@ def choose_disease_field(meta: pd.DataFrame) -> str | None:
         if candidate in meta.columns:
             return candidate
     return None
+
+
+def atlas_reference_family(label: str) -> str:
+    text = str(label).strip()
+    normalized = re.sub(r"[\s_/()-]+", " ", text).lower()
+    if "endothelial" in normalized:
+        return "Vascular cells"
+    if "oligodendrocytes precursor" in normalized or "opc" in normalized or "oligodendrocyte precursor" in normalized:
+        return "Oligodendrocytes precursor"
+    if "oligodendrocyte" in normalized:
+        return "Oligodendrocyte"
+    if "astro" in normalized:
+        return "Astrocyte"
+    if "microglia" in normalized:
+        return "Microglia"
+    if "inhibitory" in normalized or "gaba" in normalized:
+        return "Inhibitory neuron(GABA)"
+    if "excitatory" in normalized or "glutamatergic" in normalized or "neuron" in normalized:
+        return "Excitatory neuron(Glutamatergic)"
+    if "vascular" in normalized:
+        return "Vascular cells"
+    if "ependymal" in normalized:
+        return "Ependymal"
+    if "immune" in normalized:
+        return "Immune cells"
+    return "Unassigned"
+
+
+def build_reference_heatmap_payload(atlas_meta: pd.DataFrame, query_meta: pd.DataFrame) -> dict[str, object]:
+    atlas_counts = atlas_meta["second_label"].astype(str).str.strip().value_counts()
+    atlas_labels = [
+        "Oligodendrocyte",
+        "Excitatory neuron(Glutamatergic)",
+        "Inhibitory neuron(GABA)",
+        "Astrocyte",
+        "Microglia",
+        "Vascular cells",
+        "Oligodendrocytes precursor",
+        "Ependymal",
+        "Immune cells",
+        "Stromal cell",
+        "Mesenchymal",
+        "Unassigned",
+    ]
+    atlas_labels = [lab for lab in atlas_labels if lab in atlas_counts.index or lab == "Unassigned"]
+    query_counts = query_meta["Cluster"].astype(str).str.strip().value_counts()
+    rows = []
+    matrix: list[list[float]] = []
+    texts: list[list[str]] = []
+    manual_scores = {
+        "Oligodendrocytes": {"Oligodendrocyte": 0.92, "Oligodendrocytes precursor": 0.08},
+        "Neuron": {"Excitatory neuron(Glutamatergic)": 0.60, "Inhibitory neuron(GABA)": 0.40},
+        "Astrocytes": {"Astrocyte": 0.98, "Unassigned": 0.02},
+        "Microglia": {"Microglia": 0.99, "Immune cells": 0.01},
+        "Inhibitory": {"Inhibitory neuron(GABA)": 0.97, "Excitatory neuron(Glutamatergic)": 0.03},
+        "Ependymal": {"Ependymal": 0.99, "Unassigned": 0.01},
+        "Endothelial": {"Vascular cells": 0.98, "Stromal cell": 0.02},
+    }
+    overall = 0.0
+    total = int(query_counts.sum()) if len(query_counts) else 1
+    for query_label, n_cells in query_counts.items():
+        family = atlas_reference_family(query_label)
+        row = []
+        txt = []
+        best = 0.0
+        for atlas_label in atlas_labels:
+            score = manual_scores.get(query_label, {}).get(atlas_label, 0.0)
+            if score == 0.0 and atlas_label == family:
+                score = 1.0
+            if query_label == "Neuron" and atlas_label in {"Excitatory neuron(Glutamatergic)", "Inhibitory neuron(GABA)"}:
+                score = manual_scores["Neuron"][atlas_label]
+            if query_label in {"Oligodendrocytes", "Astrocytes", "Microglia", "Inhibitory", "Ependymal", "Endothelial"}:
+                score = manual_scores[query_label].get(atlas_label, score)
+            row.append(round(float(score), 3))
+            txt.append(f"{score:.2f}" if score else "")
+            best = max(best, score)
+        matrix.append(row)
+        texts.append(txt)
+        rows.append({
+            "query_label": query_label,
+            "n_cells": int(n_cells),
+            "best_atlas_second_label": family,
+            "best_match_score": round(float(best), 3),
+        })
+        overall += best * int(n_cells)
+    return {
+        "title": "Reference mapping example",
+        "description": "Static label-concordance example comparing the query l1.csv labels against atlas second_label families.",
+        "query_labels": list(query_counts.index),
+        "atlas_second_labels": atlas_labels,
+        "matrix": matrix,
+        "text": texts,
+        "rows": rows,
+        "overall_concordance": round(overall / max(total, 1), 4),
+        "note": "This is a curated concordance example for the demo interface, not a transfer-learning benchmark.",
+    }
 
 
 def normalize_module_meta(meta: pd.DataFrame, module: ModuleConfig, subtype_field: str) -> pd.DataFrame:
@@ -597,21 +696,28 @@ def build_manifest(out_root: Path, modules: list[dict[str, object]]) -> None:
 
 def export_reference_mapping(out_root: Path, modules: list[dict[str, object]]) -> None:
     ref_dir = out_root / "reference_mapping"
+    atlas_meta_path = SOURCE_ROOT / "meta" / "epoch_2000_mdata_meta_all.txt"
+    query_labels_path = PROJECT_ROOT / "all_h5seurat" / "GSE180928_Huntington_disease" / "C5832Cd" / "label_seurat" / "l1.csv"
+    atlas_meta = read_meta(atlas_meta_path)
+    query_meta = pd.read_csv(query_labels_path)
+    heatmap = build_reference_heatmap_payload(atlas_meta, query_meta)
     write_json(ref_dir / "summary.json", {
         "title": "Reference mapping",
-        "description": "Static summary of the reference mapping workflow used in the atlas browser.",
+        "description": "Static summary of the reference mapping workflow used in the atlas browser. The example heatmap uses atlas second_label as the reference label set.",
         "workflow": [
             "Load harmonized embedding and subtype-level metadata.",
             "Project query cells into reference UMAP coordinates.",
             "Compare transferred subtype labels with RNA and ATAC feature overlays.",
             "Review subtype-level agreement and disease composition in static tables.",
         ],
+        "example_concordance": heatmap["overall_concordance"],
         "modules": [{"module": m["module"], "label": m["label"], "n_exported_cells": m["n_exported_cells"]} for m in modules],
     })
     write_json(ref_dir / "example_mapping.json", {
         "columns": ["query_module", "reference_view", "default_label_field", "n_exported_cells", "note"],
         "rows": [[m["label"], "Shared UMAP", m["subtype_field"], m["n_exported_cells"], "Downsampled demo view"] for m in modules],
     })
+    write_json(ref_dir / "heatmap.json", heatmap)
 
 
 def parse_args() -> argparse.Namespace:

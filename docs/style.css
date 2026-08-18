@@ -189,6 +189,9 @@ table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 th, td { padding: .62rem .55rem; border-bottom: 1px solid var(--line); text-align: left; }
 thead { background: #f6f9fc; position: sticky; top: 0; }
 .reference-panel ol { margin: .3rem 0 0 1.25rem; line-height: 1.65; }
+.reference-grid { display: grid; gap: 1rem; }
+.reference-heatmap { min-height: 460px; }
+.reference-heatmap-panel { margin-top: 1rem; }
 .hidden { display: none !important; }
 .footer { padding: 0 1.2rem 1rem; font-size: 13px; }
 @media (max-width: 1280px) {
