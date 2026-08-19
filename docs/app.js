@@ -22,7 +22,7 @@ const state = {
   currentScarlinkDisease: null,
 };
 
-const APP_VERSION = "20260819-e73dfee";
+const APP_VERSION = "20260819-second-label-fill";
 
 const palette = [
   "#8f2d2a", "#d16f5b", "#bfa239", "#3c7d67", "#4f8797", "#7a6eb4", "#9f5378",

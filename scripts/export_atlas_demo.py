@@ -50,6 +50,12 @@ WHOLE_BRAIN_ALIGNMENT_PATH = PROJECT_ROOT / "fc_feature_mdata" / "tmp.feather_ne
 WHOLE_BRAIN_H5MU_PATH = PROJECT_ROOT / "Downstream_analysis_atlas_1230" / "Analysis" / "PTSD_feature5000_epoch2000_0725_rename.h5mu"
 WHOLE_BRAIN_FC_EMBEDDING_PATH = SOURCE_ROOT / "embedding" / "fc_cellid_my_umap_embedding_umap.npz"
 WHOLE_BRAIN_FC_META_PATH = SOURCE_ROOT / "meta" / "fc_cellid_my_umap_embedding_meta.tsv"
+WHOLE_SECOND_LABEL_FALLBACK = {
+    "Oligodendrocytes precursor": "Oligodendrocytes precursor",
+    "Mammillary body": "Mammillary body",
+    "Bergmann glia": "Bergmann glia",
+    "Choroid plexus": "Choroid plexus",
+}
 
 
 @dataclass(frozen=True)
@@ -262,9 +268,27 @@ def load_whole_brain_fc_meta_embedding(module: ModuleConfig) -> tuple[pd.DataFra
         raise ValueError("Whole-brain embedding contains NaN or Inf")
 
     meta = meta.copy()
+    meta = fill_whole_brain_second_label(meta)
     meta.index = meta["cell"].astype(str)
     meta.index.name = "cell_id"
     return meta, embedding
+
+
+def fill_whole_brain_second_label(meta: pd.DataFrame) -> pd.DataFrame:
+    if "second_label" not in meta.columns or "celltype_r2" not in meta.columns:
+        return meta
+
+    out = meta.copy()
+    missing = out["second_label"].map(is_missing_like)
+    mapped = out.loc[missing, "celltype_r2"].map(WHOLE_SECOND_LABEL_FALLBACK)
+    fill_mask = missing & mapped.notna()
+    out.loc[fill_mask, "second_label"] = mapped.loc[fill_mask]
+
+    remaining = int(out["second_label"].map(is_missing_like).sum())
+    if remaining:
+        counts = out.loc[out["second_label"].map(is_missing_like), "celltype_r2"].value_counts(dropna=False)
+        raise ValueError(f"Whole-brain second_label still has {remaining} missing values after fallback: {counts.to_dict()}")
+    return out
 
 
 def load_embedding(path: Path) -> np.ndarray:

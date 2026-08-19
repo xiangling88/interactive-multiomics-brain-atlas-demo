@@ -38,6 +38,13 @@ def check_finite(name: str, embedding: np.ndarray) -> None:
         raise SystemExit(f"{name} embedding contains NaN or Inf")
 
 
+def is_missing_label(value: object) -> bool:
+    if value is None:
+        return True
+    text = str(value).strip().lower()
+    return text in {"", "na", "nan", "none", "<na>"}
+
+
 def validate_whole() -> dict[str, object]:
     with np.load(WHOLE_NPZ, allow_pickle=True) as npz:
         embedding = np.asarray(npz["embedding"], dtype=np.float32)
@@ -58,7 +65,14 @@ def validate_whole() -> dict[str, object]:
         raise SystemExit("Whole meta cell column contains duplicated cell names")
     if npz_cells is not None and not np.array_equal(npz_cells.astype(str), meta_cells):
         raise SystemExit("Whole npz cell_names differ from meta cell")
+    if "second_label" not in meta.columns:
+        raise SystemExit("Whole meta missing second_label")
+    missing_second_label = int(meta["second_label"].map(is_missing_label).sum())
+    if missing_second_label:
+        counts = meta.loc[meta["second_label"].map(is_missing_label), "celltype_r2"].value_counts(dropna=False).to_dict()
+        raise SystemExit(f"Whole second_label still has {missing_second_label} missing values: {counts}")
     check_finite("Whole atlas", embedding)
+    print(f"Whole atlas second_label missing count: {missing_second_label}")
     print("[PASS] Whole atlas embedding/meta alignment")
     return {
         "cells": int(len(meta_cells)),
