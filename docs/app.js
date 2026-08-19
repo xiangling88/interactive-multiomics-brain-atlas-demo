@@ -22,13 +22,16 @@ const state = {
   currentScarlinkDisease: null,
 };
 
+const APP_VERSION = "20260819-e73dfee";
+
 const palette = [
   "#8f2d2a", "#d16f5b", "#bfa239", "#3c7d67", "#4f8797", "#7a6eb4", "#9f5378",
   "#cb8b2f", "#4d5a68", "#87915b", "#ba5b44", "#6b89c6", "#ad6b92", "#597b80", "#9a8f7a",
 ];
 
 function getJSON(path) {
-  return fetch(path).then((res) => {
+  const sep = path.includes("?") ? "&" : "?";
+  return fetch(`${path}${sep}v=${APP_VERSION}`, {cache: "no-store"}).then((res) => {
     if (!res.ok) throw new Error(`Failed to load ${path}`);
     return res.json();
   });
