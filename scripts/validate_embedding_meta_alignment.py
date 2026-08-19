@@ -13,9 +13,8 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = APP_ROOT.parent
 ATLAS_ROOT = APP_ROOT.parents[1]
 
-WHOLE_H5MU = ATLAS_ROOT / "Downstream_analysis_atlas_1230" / "Analysis" / "PTSD_feature5000_epoch2000_0725_rename.h5mu"
-WHOLE_NPZ = SOURCE_ROOT / "embedding" / "PTSD_feature5000_epoch2000_0725_rename_X_umap_embedding_umap.npz"
-WHOLE_META = SOURCE_ROOT / "meta" / "epoch_2000_mdata_meta_all.txt"
+WHOLE_NPZ = SOURCE_ROOT / "embedding" / "fc_cellid_my_umap_embedding_umap.npz"
+WHOLE_META = SOURCE_ROOT / "meta" / "fc_cellid_my_umap_embedding_meta.tsv"
 
 ASTRO_NPZ = SOURCE_ROOT / "embedding" / "Astrocytes_0608_rna_atac_midas_umap_embedding_umap.npz"
 ASTRO_META = SOURCE_ROOT / "meta" / "Astrocytes_0525_drop_meta_all_new.txt"
@@ -40,29 +39,29 @@ def check_finite(name: str, embedding: np.ndarray) -> None:
 
 
 def validate_whole() -> dict[str, object]:
-    with h5py.File(WHOLE_H5MU, "r") as handle:
-        h5_cells = decode(handle["obs"]["_index"][:])
-        h5_embedding = np.asarray(handle["obsm"]["X_umap"][:], dtype=np.float32)
     with np.load(WHOLE_NPZ, allow_pickle=True) as npz:
         embedding = np.asarray(npz["embedding"], dtype=np.float32)
+        npz_cellid = np.asarray(npz["cellid"]) if "cellid" in npz.files else None
         npz_cells = decode(npz["cell_names"][:]) if "cell_names" in npz.files else None
         npz_keys = list(npz.files)
     meta = pd.read_csv(WHOLE_META, sep="\t", dtype=str, low_memory=False)
-    if "cell_id" not in meta.columns:
-        raise SystemExit("Whole meta missing required cell_id column")
-    meta_cells = meta["cell_id"].astype(str).to_numpy()
-    if embedding.shape != h5_embedding.shape:
-        raise SystemExit("Whole npz embedding shape differs from h5mu X_umap")
-    if not np.allclose(embedding, h5_embedding):
-        raise SystemExit("Whole npz embedding values differ from h5mu X_umap")
-    if not np.array_equal(meta_cells, h5_cells.astype(str)):
-        raise SystemExit("Whole meta cell_id order differs from h5mu obs_names")
+    if "cell" not in meta.columns or "cellid" not in meta.columns:
+        raise SystemExit("Whole meta missing required cell/cellid columns")
+    meta_cells = meta["cell"].astype(str).to_numpy()
+    if embedding.shape[0] != len(meta_cells):
+        raise SystemExit("Whole embedding/meta length mismatch")
+    if npz_cellid is None:
+        raise SystemExit("Whole npz missing cellid array")
+    if not np.array_equal(npz_cellid.astype(str), meta["cellid"].astype(str).to_numpy()):
+        raise SystemExit("Whole npz cellid differs from meta cellid")
+    if pd.Index(meta_cells).duplicated().any():
+        raise SystemExit("Whole meta cell column contains duplicated cell names")
     if npz_cells is not None and not np.array_equal(npz_cells.astype(str), meta_cells):
-        raise SystemExit("Whole npz cell_names differ from meta cell_id")
+        raise SystemExit("Whole npz cell_names differ from meta cell")
     check_finite("Whole atlas", embedding)
     print("[PASS] Whole atlas embedding/meta alignment")
     return {
-        "cells": int(len(h5_cells)),
+        "cells": int(len(meta_cells)),
         "embedding_shape": list(map(int, embedding.shape)),
         "meta_cells": int(len(meta_cells)),
         "npz_keys": npz_keys,

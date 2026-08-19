@@ -48,6 +48,8 @@ RL_FIELDS = ["RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"]
 DANGEROUS_PATTERNS = [re.compile(p, re.I) for p in ["author", "institution", "server", "path", "patient", "subject"]]
 WHOLE_BRAIN_ALIGNMENT_PATH = PROJECT_ROOT / "fc_feature_mdata" / "tmp.feather_new.txt"
 WHOLE_BRAIN_H5MU_PATH = PROJECT_ROOT / "Downstream_analysis_atlas_1230" / "Analysis" / "PTSD_feature5000_epoch2000_0725_rename.h5mu"
+WHOLE_BRAIN_FC_EMBEDDING_PATH = SOURCE_ROOT / "embedding" / "fc_cellid_my_umap_embedding_umap.npz"
+WHOLE_BRAIN_FC_META_PATH = SOURCE_ROOT / "meta" / "fc_cellid_my_umap_embedding_meta.tsv"
 
 
 @dataclass(frozen=True)
@@ -68,8 +70,8 @@ MODULES: dict[str, ModuleConfig] = {
         key="whole_brain",
         label="Whole Brain",
         h5mu_path=WHOLE_BRAIN_H5MU_PATH,
-        embedding_path=SOURCE_ROOT / "embedding" / "PTSD_feature5000_epoch2000_0725_rename_X_umap_embedding_umap.npz",
-        meta_path=SOURCE_ROOT / "meta" / "epoch_2000_mdata_meta_all.txt",
+        embedding_path=WHOLE_BRAIN_FC_EMBEDDING_PATH,
+        meta_path=WHOLE_BRAIN_FC_META_PATH,
         subtype_candidates=("second_label", "L1_CELL_TYPE_NEW", "celltype_r2"),
         sample_candidates=("DONOR_ID",),
         marker_seeds=("AQP4", "P2RY12", "MBP", "PLP1", "SLC17A7", "GAD1", "RBFOX3", "PDGFRA", "SOX6", "APOE", "CLU"),
@@ -230,13 +232,39 @@ def merge_whole_brain_alignment(meta: pd.DataFrame) -> pd.DataFrame:
 
 def load_module_meta_embedding(module: ModuleConfig) -> tuple[pd.DataFrame, np.ndarray]:
     if module.key == "whole_brain":
-        meta = merge_whole_brain_alignment(read_h5_obs_dataframe(module.h5mu_path))
-        embedding = load_h5_umap(module.h5mu_path, "X_umap")
-        npz_embedding = load_embedding(module.embedding_path)
-        if npz_embedding.shape == embedding.shape and np.allclose(npz_embedding[:1000], embedding[:1000]):
-            embedding = npz_embedding
-        return meta, embedding
+        return load_whole_brain_fc_meta_embedding(module)
     return read_meta(module.meta_path), load_embedding(module.embedding_path)
+
+
+def load_whole_brain_fc_meta_embedding(module: ModuleConfig) -> tuple[pd.DataFrame, np.ndarray]:
+    with np.load(module.embedding_path, allow_pickle=True) as obj:
+        if "embedding" not in obj.files:
+            raise ValueError(f"{module.embedding_path} must contain an embedding array")
+        if "cellid" not in obj.files:
+            raise ValueError(f"{module.embedding_path} must contain cellid for strict cell-order validation")
+        embedding = np.asarray(obj["embedding"], dtype=np.float32)
+        embedding_cellid = np.asarray(obj["cellid"])
+
+    meta = pd.read_csv(module.meta_path, sep="\t", low_memory=False)
+    required = {"cell", "cellid"}
+    missing = required - set(meta.columns)
+    if missing:
+        raise ValueError(f"{module.meta_path} missing required columns: {sorted(missing)}")
+    if len(meta) != embedding.shape[0]:
+        raise ValueError(f"Whole-brain embedding/meta length mismatch: {embedding.shape[0]} vs {len(meta)}")
+    if embedding.ndim != 2 or embedding.shape[1] != 2:
+        raise ValueError(f"Whole-brain embedding must be Nx2, got {embedding.shape}")
+    if not np.array_equal(embedding_cellid, meta["cellid"].to_numpy()):
+        raise ValueError("Whole-brain npz cellid does not match meta cellid order")
+    if meta["cell"].duplicated().any():
+        raise ValueError("Whole-brain meta cell column contains duplicated cell names")
+    if not np.isfinite(embedding).all():
+        raise ValueError("Whole-brain embedding contains NaN or Inf")
+
+    meta = meta.copy()
+    meta.index = meta["cell"].astype(str)
+    meta.index.name = "cell_id"
+    return meta, embedding
 
 
 def load_embedding(path: Path) -> np.ndarray:
@@ -541,18 +569,21 @@ def read_extra_genes(gene_file: Path | None) -> list[str]:
 
 
 def build_feature_lists(module: ModuleConfig, handle: h5py.File, max_rna: int, max_atac: int, extra_genes: list[str]) -> tuple[list[str], list[str]]:
+    if max_rna <= 0 and max_atac <= 0:
+        return [], []
     rna_names = get_var_names(handle, "rna")
     atac_names = get_var_names(handle, "atac")
     rna_lookup = {x.upper(): x for x in rna_names}
     rna: list[str] = []
-    seeds = PRIORITY_GENES + EXTRA_FEATURE_GENES + list(module.marker_seeds) + extra_genes + rna_names[:2000]
-    for gene in seeds:
-        hit = rna_lookup.get(str(gene).upper(), gene if gene in rna_names else None)
-        if hit and hit not in rna:
-            rna.append(hit)
-        if len(rna) >= max_rna:
-            break
-    atac = choose_balanced_atac_features(atac_names, max_atac=max_atac, per_chrom=10)
+    if max_rna > 0:
+        seeds = PRIORITY_GENES + EXTRA_FEATURE_GENES + list(module.marker_seeds) + extra_genes + rna_names[:2000]
+        for gene in seeds:
+            hit = rna_lookup.get(str(gene).upper(), gene if gene in rna_names else None)
+            if hit and hit not in rna:
+                rna.append(hit)
+            if len(rna) >= max_rna:
+                break
+    atac = choose_balanced_atac_features(atac_names, max_atac=max_atac, per_chrom=10) if max_atac > 0 else []
     return rna[:max_rna], atac[:max_atac]
 
 
