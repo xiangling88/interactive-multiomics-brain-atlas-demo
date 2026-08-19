@@ -98,7 +98,7 @@ async function loadAtlasModule(moduleKey) {
     const part = await getJSON(parts[i]);
     cells.push(...part.cells);
   }
-  const payload = {entry, categories, summary, markers, cells, columns: ["x", "y", ...(entry.display_fields || ["subtype", "disease", "sample", "RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"]).slice(2)]};
+  const payload = {entry, categories, summary, markers, cells, columns: ["x", "y", ...(entry.display_fields || ["cell_id", "subtype", "disease", "sample", "RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"]).slice(2)]};
   state.moduleCache.set(moduleKey, payload);
   setText("load-progress", `${cells.length.toLocaleString()} cells loaded`);
   return payload;
@@ -183,7 +183,7 @@ async function renderAtlasModule(data) {
   const cells = data.cells;
   const x = cells.map((row) => row[0]);
   const y = cells.map((row) => row[1]);
-  const fieldIndex = {subtype: 2, disease: 3, sample: 4, RL6: 5, RL_4: 6, RL3_2: 7, RL3_1: 8, RL_3: 9, RL_2: 10};
+  const fieldIndex = Object.fromEntries(data.columns.map((field, idx) => [field, idx]));
   const pointSize = Number(document.getElementById("point-size").value);
   const opacity = Number(document.getElementById("point-opacity").value);
   let markerColor;
@@ -198,15 +198,19 @@ async function renderAtlasModule(data) {
     markerColor = hoverValues;
     showscale = true;
   } else {
-    const vals = cells.map((row) => row[fieldIndex[state.currentColorBy] ?? 2]);
+    const vals = cells.map((row) => row[fieldIndex[state.currentColorBy] ?? fieldIndex.subtype]);
     colorLegend = categoricalColors(vals);
     markerColor = colorLegend.colors;
   }
 
   const hoverText = cells.map((row, idx) => {
-    const parts = [`Subtype: ${escHtml(row[2])}`, `Disease: ${escHtml(row[3])}`, `Sample: ${escHtml(row[4])}`];
-    ["RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"].forEach((field, offset) => {
-      const v = row[5 + offset];
+    const parts = [];
+    if (fieldIndex.cell_id !== undefined) parts.push(`Cell: ${escHtml(row[fieldIndex.cell_id])}`);
+    parts.push(`Subtype: ${escHtml(row[fieldIndex.subtype])}`);
+    parts.push(`Disease: ${escHtml(row[fieldIndex.disease])}`);
+    parts.push(`Sample: ${escHtml(row[fieldIndex.sample])}`);
+    ["RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"].forEach((field) => {
+      const v = row[fieldIndex[field]];
       if (v && v !== "NA") parts.push(`${field}: ${escHtml(v)}`);
     });
     if (hoverValues) parts.push(`${escHtml(state.currentFeature)}: ${Number(hoverValues[idx]).toFixed(4)}`);

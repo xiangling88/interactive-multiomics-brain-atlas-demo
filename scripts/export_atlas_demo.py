@@ -43,7 +43,7 @@ PLOT_PALETTE = [
     "#cb8b2f", "#4d5a68", "#87915b", "#ba5b44", "#6b89c6", "#ad6b92", "#597b80", "#9a8f7a",
 ]
 
-DISPLAY_META_FIELDS = ["subtype", "disease", "sample", "RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"]
+DISPLAY_META_FIELDS = ["cell_id", "subtype", "disease", "sample", "RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"]
 RL_FIELDS = ["RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"]
 DANGEROUS_PATTERNS = [re.compile(p, re.I) for p in ["author", "institution", "server", "path", "patient", "subject"]]
 WHOLE_BRAIN_ALIGNMENT_PATH = PROJECT_ROOT / "fc_feature_mdata" / "tmp.feather_new.txt"
@@ -520,6 +520,7 @@ def normalize_module_meta(meta: pd.DataFrame, module: ModuleConfig, subtype_fiel
     out = pd.DataFrame(index=meta.index)
     disease_field = choose_disease_field(meta)
     sample_field = choose_sample_field(meta, module)
+    out["cell_id"] = meta.index.astype(str)
     out["subtype"] = meta[subtype_field].map(clean_value)
     out["disease"] = meta[disease_field].map(clean_value) if disease_field else "NA"
     out["sample"] = meta[sample_field].map(clean_value) if sample_field else "NA"
@@ -794,8 +795,8 @@ def export_module(module: ModuleConfig, args: argparse.Namespace, planned_cells:
     categories = {
         "subtype_field": subtype_field,
         "subtype_label": "Astrocyte subtype" if module.key == "astrocyte" else "Subtype",
-        "color_fields": [x for x in DISPLAY_META_FIELDS if x != "sample" or meta_norm["sample"].ne("NA").any()],
-        "available_color_by": [x for x in DISPLAY_META_FIELDS if meta_norm[x].ne("NA").any()] + ["selected_feature"],
+        "color_fields": [x for x in DISPLAY_META_FIELDS if x != "cell_id" and (x != "sample" or meta_norm["sample"].ne("NA").any())],
+        "available_color_by": [x for x in DISPLAY_META_FIELDS if x != "cell_id" and meta_norm[x].ne("NA").any()] + ["selected_feature"],
         "palette": PLOT_PALETTE,
     }
     summary = module_summary(module, meta_norm, exported_indices, subtype_field, rna_manifest, atac_manifest, cell_parts, warnings)
