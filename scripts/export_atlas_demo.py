@@ -47,6 +47,7 @@ DISPLAY_META_FIELDS = ["subtype", "disease", "sample", "RL6", "RL_4", "RL3_2", "
 RL_FIELDS = ["RL6", "RL_4", "RL3_2", "RL3_1", "RL_3", "RL_2"]
 DANGEROUS_PATTERNS = [re.compile(p, re.I) for p in ["author", "institution", "server", "path", "patient", "subject"]]
 WHOLE_BRAIN_ALIGNMENT_PATH = PROJECT_ROOT / "fc_feature_mdata" / "tmp.feather_new.txt"
+WHOLE_BRAIN_H5MU_PATH = PROJECT_ROOT / "Downstream_analysis_atlas_1230" / "Analysis" / "PTSD_feature5000_epoch2000_0725_rename.h5mu"
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,7 @@ MODULES: dict[str, ModuleConfig] = {
     "whole_brain": ModuleConfig(
         key="whole_brain",
         label="Whole Brain",
-        h5mu_path=PROJECT_ROOT / "fc_feature_mdata" / "epoch_2000_mdata.h5mu",
+        h5mu_path=WHOLE_BRAIN_H5MU_PATH,
         embedding_path=SOURCE_ROOT / "embedding" / "PTSD_feature5000_epoch2000_0725_rename_X_umap_embedding_umap.npz",
         meta_path=SOURCE_ROOT / "meta" / "epoch_2000_mdata_meta_all.txt",
         subtype_candidates=("second_label", "L1_CELL_TYPE_NEW", "celltype_r2"),
@@ -159,27 +160,110 @@ def read_meta(path: Path) -> pd.DataFrame:
     return meta
 
 
-def align_whole_brain_meta(meta: pd.DataFrame) -> pd.DataFrame:
+def read_h5_obs_column(obs: h5py.Group, key: str) -> list[object]:
+    obj = obs[key]
+    if isinstance(obj, h5py.Dataset):
+        values = obj[:]
+        if values.dtype.kind in {"O", "S"}:
+            return decode_h5(values)
+        return values.tolist()
+    if isinstance(obj, h5py.Group) and "codes" in obj and "categories" in obj:
+        codes = obj["codes"][:]
+        categories = decode_h5(obj["categories"][:])
+        return [categories[int(code)] if int(code) >= 0 else "NA" for code in codes]
+    return ["NA"] * len(obs["_index"])
+
+
+def read_h5_obs_dataframe(path: Path) -> pd.DataFrame:
+    with h5py.File(path, "r") as handle:
+        obs = handle["obs"]
+        columns = [key for key in obs.keys() if key != "_index"]
+        index = decode_h5(obs["_index"][:])
+        data = {key: read_h5_obs_column(obs, key) for key in columns}
+    meta = pd.DataFrame(data, index=index)
+    meta.index.name = "cellname"
+    return meta
+
+
+def load_h5_umap(path: Path, key: str = "X_umap") -> np.ndarray:
+    with h5py.File(path, "r") as handle:
+        return np.asarray(handle["obsm"][key][:], dtype=np.float32)
+
+
+def normalize_dataset_key(value: object) -> str:
+    text = clean_value(value)
+    text = re.sub(r"^GSM\d+_", "", text)
+    return text
+
+
+def first_non_missing(values: pd.Series) -> str:
+    for value in values:
+        if not is_missing_like(value):
+            return clean_value(value)
+    return "NA"
+
+
+def merge_whole_brain_alignment(meta: pd.DataFrame) -> pd.DataFrame:
     if not WHOLE_BRAIN_ALIGNMENT_PATH.exists():
         return meta
-    align = pd.read_csv(
-        WHOLE_BRAIN_ALIGNMENT_PATH,
-        sep="\t",
-        usecols=["Unnamed: 0", "second_label", "celltype_r2"],
-        low_memory=False,
-    )
-    n = min(len(meta), len(align))
-    aligned = meta.iloc[:n].copy().reset_index(drop=True)
-    align = align.iloc[:n].copy().reset_index(drop=True)
-    aligned.index = align["Unnamed: 0"].astype(str).tolist()
-    if "second_label" in aligned.columns and "celltype_r2" in align.columns:
-        filled = aligned["second_label"].astype(object).to_numpy(copy=True)
-        fill_mask = np.array([is_missing_like(value) for value in filled], dtype=bool)
-        filled[fill_mask] = align.loc[fill_mask, "celltype_r2"].map(clean_value).to_numpy()
-        aligned["second_label"] = pd.Series(filled, index=aligned.index).map(clean_value)
-    if "celltype_r2" in aligned.columns:
-        aligned["celltype_r2"] = align["celltype_r2"].map(clean_value)
-    return aligned
+    wanted = [
+        "Unnamed: 0", "dataset_1", "SUBSET_ID", "DONOR_ID", "RL6", "RL_5", "RL_4", "RL3_2", "RL3_1",
+        "RL_3", "RL_2", "C_NAME", "FUNCTION", "SUB_REGION_PRECISE", "L1_CELL_TYPE_NEW",
+    ]
+    header = pd.read_csv(WHOLE_BRAIN_ALIGNMENT_PATH, sep="\t", nrows=0).columns
+    usecols = [col for col in wanted if col in set(header)]
+    align = pd.read_csv(WHOLE_BRAIN_ALIGNMENT_PATH, sep="\t", usecols=usecols, low_memory=False)
+    align["Unnamed: 0"] = align["Unnamed: 0"].astype(str)
+
+    out = meta.copy()
+    by_cell = align.drop_duplicates("Unnamed: 0").set_index("Unnamed: 0")
+    merge_fields = [col for col in by_cell.columns if col != "dataset_1"]
+    for field in merge_fields:
+        values = by_cell[field].reindex(out.index)
+        if field not in out.columns:
+            out[field] = values
+        else:
+            fill_mask = out[field].map(is_missing_like)
+            out.loc[fill_mask, field] = values.loc[fill_mask]
+
+    if "dataset_1" in out.columns and "dataset_1" in align.columns:
+        dataset_fields = [col for col in merge_fields if col in align.columns]
+        dataset_summary = (
+            align.assign(_merge_dataset=align["dataset_1"].map(normalize_dataset_key))
+            .groupby("_merge_dataset", sort=False)[dataset_fields]
+            .agg(first_non_missing)
+        )
+        out_key = out["dataset_1"].map(normalize_dataset_key)
+        for field in dataset_fields:
+            fill_mask = out[field].map(is_missing_like) if field in out.columns else pd.Series(True, index=out.index)
+            values = out_key.map(dataset_summary[field])
+            out.loc[fill_mask, field] = values.loc[fill_mask]
+
+    if "dataset" in out.columns and "SUBSET_ID" in align.columns:
+        subset_fields = [col for col in merge_fields if col not in {"SUBSET_ID"} and col in align.columns]
+        subset_summary = (
+            align.assign(_merge_subset=align["SUBSET_ID"].map(clean_value))
+            .groupby("_merge_subset", sort=False)[subset_fields]
+            .agg(first_non_missing)
+        )
+        out_key = out["dataset"].map(clean_value)
+        for field in subset_fields:
+            fill_mask = out[field].map(is_missing_like) if field in out.columns else pd.Series(True, index=out.index)
+            values = out_key.map(subset_summary[field])
+            out.loc[fill_mask, field] = values.loc[fill_mask]
+
+    return out
+
+
+def load_module_meta_embedding(module: ModuleConfig) -> tuple[pd.DataFrame, np.ndarray]:
+    if module.key == "whole_brain":
+        meta = merge_whole_brain_alignment(read_h5_obs_dataframe(module.h5mu_path))
+        embedding = load_h5_umap(module.h5mu_path, "X_umap")
+        npz_embedding = load_embedding(module.embedding_path)
+        if npz_embedding.shape == embedding.shape and np.allclose(npz_embedding[:1000], embedding[:1000]):
+            embedding = npz_embedding
+        return meta, embedding
+    return read_meta(module.meta_path), load_embedding(module.embedding_path)
 
 
 def load_embedding(path: Path) -> np.ndarray:
@@ -266,7 +350,28 @@ def get_var_names(handle: h5py.File, modality: str) -> list[str]:
     return []
 
 
-def extract_sparse_rows(group: h5py.Group, row_indices: np.ndarray, col_indices: list[int]) -> np.ndarray:
+def extract_sparse_rows(group: h5py.Group | h5py.Dataset, row_indices: np.ndarray, col_indices: list[int]) -> np.ndarray:
+    if isinstance(group, h5py.Dataset):
+        out = np.zeros((len(row_indices), len(col_indices)), dtype=np.float32)
+        sorted_cols = np.asarray(sorted(col_indices), dtype=np.int64)
+        col_order = np.asarray([int(np.where(sorted_cols == col)[0][0]) for col in col_indices], dtype=np.int64)
+        contiguous = (
+            len(row_indices) > 0
+            and np.array_equal(row_indices, np.arange(int(row_indices[0]), int(row_indices[0]) + len(row_indices)))
+        )
+        if contiguous:
+            chunk_size = 8192
+            row_start = int(row_indices[0])
+            for start in range(0, len(row_indices), chunk_size):
+                end = min(len(row_indices), start + chunk_size)
+                block = np.asarray(group[row_start + start:row_start + end, sorted_cols], dtype=np.float32)
+                out[start:end, :] = block[:, col_order]
+            return out
+        for i, row in enumerate(row_indices):
+            block = np.asarray(group[int(row), sorted_cols], dtype=np.float32)
+            out[i, :] = block[col_order]
+        return out
+
     indptr_ds = group["indptr"]
     indices_ds = group["indices"]
     data_ds = group["data"]
@@ -689,10 +794,7 @@ def export_module(module: ModuleConfig, args: argparse.Namespace, planned_cells:
     log(f"Exporting {module.key}")
     out_dir = Path(args.out) / module.key
     out_dir.mkdir(parents=True, exist_ok=True)
-    meta = read_meta(module.meta_path)
-    if module.key == "whole_brain":
-        meta = align_whole_brain_meta(meta)
-    embedding = load_embedding(module.embedding_path)
+    meta, embedding = load_module_meta_embedding(module)
     n = min(len(meta), embedding.shape[0])
     warnings: list[str] = []
     if len(meta) != embedding.shape[0]:
@@ -763,9 +865,8 @@ def build_manifest(out_root: Path, modules: list[dict[str, object]]) -> None:
 
 def export_reference_mapping(out_root: Path, modules: list[dict[str, object]]) -> None:
     ref_dir = out_root / "reference_mapping"
-    atlas_meta_path = SOURCE_ROOT / "meta" / "epoch_2000_mdata_meta_all.txt"
     query_labels_path = PROJECT_ROOT / "all_h5seurat" / "GSE180928_Huntington_disease" / "C5832Cd" / "label_seurat" / "l1.csv"
-    atlas_meta = read_meta(atlas_meta_path)
+    atlas_meta = merge_whole_brain_alignment(read_h5_obs_dataframe(WHOLE_BRAIN_H5MU_PATH))
     query_meta = pd.read_csv(query_labels_path)
     heatmap = build_reference_heatmap_payload(atlas_meta, query_meta)
     write_json(ref_dir / "summary.json", {
@@ -820,10 +921,10 @@ def main() -> None:
 
     modules_meta: dict[str, tuple[int, int, int]] = {}
     for module in selected:
-        meta = read_meta(module.meta_path)
+        meta, embedding = load_module_meta_embedding(module)
         with h5py.File(module.h5mu_path, "r") as handle:
             rna_features, atac_features = build_feature_lists(module, handle, args.max_rna_features, args.max_atac_features, extra_genes)
-        modules_meta[module.key] = (min(len(meta), load_embedding(module.embedding_path).shape[0]), len(rna_features), len(atac_features))
+        modules_meta[module.key] = (min(len(meta), embedding.shape[0]), len(rna_features), len(atac_features))
 
     planned = plan_export_counts(modules_meta, args.max_total_docs_mb, args.full_embedding)
     planned = {k: min(v, args.max_cells_per_module) if not args.full_embedding else min(v, modules_meta[k][0]) for k, v in planned.items()}
