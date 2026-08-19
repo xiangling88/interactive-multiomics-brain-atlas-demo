@@ -213,44 +213,17 @@ def merge_whole_brain_alignment(meta: pd.DataFrame) -> pd.DataFrame:
     header = pd.read_csv(WHOLE_BRAIN_ALIGNMENT_PATH, sep="\t", nrows=0).columns
     usecols = [col for col in wanted if col in set(header)]
     align = pd.read_csv(WHOLE_BRAIN_ALIGNMENT_PATH, sep="\t", usecols=usecols, low_memory=False)
-    align["Unnamed: 0"] = align["Unnamed: 0"].astype(str)
+    align["SUBSET_ID_merge"] = align["SUBSET_ID"].astype(str).str.strip()
 
     out = meta.copy()
-    by_cell = align.drop_duplicates("Unnamed: 0").set_index("Unnamed: 0")
-    merge_fields = [col for col in by_cell.columns if col != "dataset_1"]
+    merge_fields = [col for col in align.columns if col not in {"Unnamed: 0", "dataset_1", "SUBSET_ID_merge"}]
+    subset_summary = align.groupby("SUBSET_ID_merge", sort=False)[merge_fields].agg(first_non_missing)
+    out_key = out["dataset"].astype(str).str.strip()
     for field in merge_fields:
-        values = by_cell[field].reindex(out.index)
-        if field not in out.columns:
-            out[field] = values
-        else:
-            fill_mask = out[field].map(is_missing_like)
-            out.loc[fill_mask, field] = values.loc[fill_mask]
-
-    if "dataset_1" in out.columns and "dataset_1" in align.columns:
-        dataset_fields = [col for col in merge_fields if col in align.columns]
-        dataset_summary = (
-            align.assign(_merge_dataset=align["dataset_1"].map(normalize_dataset_key))
-            .groupby("_merge_dataset", sort=False)[dataset_fields]
-            .agg(first_non_missing)
-        )
-        out_key = out["dataset_1"].map(normalize_dataset_key)
-        for field in dataset_fields:
-            fill_mask = out[field].map(is_missing_like) if field in out.columns else pd.Series(True, index=out.index)
-            values = out_key.map(dataset_summary[field])
-            out.loc[fill_mask, field] = values.loc[fill_mask]
-
-    if "dataset" in out.columns and "SUBSET_ID" in align.columns:
-        subset_fields = [col for col in merge_fields if col not in {"SUBSET_ID"} and col in align.columns]
-        subset_summary = (
-            align.assign(_merge_subset=align["SUBSET_ID"].map(clean_value))
-            .groupby("_merge_subset", sort=False)[subset_fields]
-            .agg(first_non_missing)
-        )
-        out_key = out["dataset"].map(clean_value)
-        for field in subset_fields:
-            fill_mask = out[field].map(is_missing_like) if field in out.columns else pd.Series(True, index=out.index)
-            values = out_key.map(subset_summary[field])
-            out.loc[fill_mask, field] = values.loc[fill_mask]
+        if field in out.columns and field != "SUBSET_ID":
+            continue
+        values = out_key.map(subset_summary[field])
+        out[field] = values
 
     return out
 

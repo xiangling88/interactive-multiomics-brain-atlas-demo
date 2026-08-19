@@ -1,0 +1,195 @@
+{
+  "whole_atlas": {
+    "h5mu": "/share/home/fxl/project/Atlas_1230/Downstream_analysis_atlas_1230/Analysis/PTSD_feature5000_epoch2000_0725_rename.h5mu",
+    "cells": 1372580,
+    "embedding_source": "mdata.obsm[\"X_umap\"]",
+    "embedding_shape": [
+      1372580,
+      2
+    ],
+    "embedding_min": [
+      -5.084749698638916,
+      -13.849686622619629
+    ],
+    "embedding_max": [
+      25.895450592041016,
+      20.747568130493164
+    ],
+    "embedding_nan_count": 0,
+    "embedding_inf_count": 0,
+    "meta_cells": 1372580,
+    "unique_cell_names": 1372580,
+    "duplicated_cell_names": 0,
+    "dataset_unique": 182,
+    "subset_id_matched": 182,
+    "subset_id_unmatched": 0,
+    "unmatched_datasets_first20": [],
+    "rl6_non_null_cells": 542455,
+    "rl6_missing_cells": 830125,
+    "old_npz_keys": [
+      "embedding"
+    ],
+    "final_embedding": "/share/home/fxl/project/Atlas_1230/web_可视化/embedding/PTSD_feature5000_epoch2000_0725_rename_X_umap_embedding_umap.npz",
+    "final_meta": "/share/home/fxl/project/Atlas_1230/web_可视化/meta/epoch_2000_mdata_meta_all.txt",
+    "alignment_percent": 100.0,
+    "structure": {
+      "obs_shape": [
+        1372580,
+        21
+      ],
+      "obs_columns": [
+        "CHETAH",
+        "atac_raw",
+        "atac_subclass",
+        "cell",
+        "celltype",
+        "celltype_r2",
+        "conf_score",
+        "dataset",
+        "dataset_1",
+        "disease_new",
+        "highlight_pvalb",
+        "l2",
+        "l3",
+        "label",
+        "leiden_midas",
+        "leiden_midas_r2.0",
+        "major_label",
+        "predicted_labels",
+        "predicted_labels_new",
+        "second_label",
+        "sizeFactor"
+      ],
+      "obs_names_first20": [
+        "B0_MM_440.CAGTGCCTATCCGTGAAAGACC",
+        "B0_MM_440.TACTAGGGATGTGCACCATGTG",
+        "B0_MM_440.AGAGGCAAAGTATAAGTGCTCC",
+        "B0_MM_440.GCTGAGGAAGAATATAGGTCCG",
+        "B0_MM_440.AAGTGGTTGAGTACTTCCTTTC",
+        "B0_MM_440.CTCGCTTAAATTCACTACGTAG",
+        "B0_MM_440.GGTGAAGCCACAGTTATAGGCC",
+        "B0_MM_440.TTTGGCGCTTCTTCCTGCTGTC",
+        "B0_MM_440.TTTCTCCTGCTCCGCGGCTTAA",
+        "B0_MM_440.ATCCGCAGGTTGACACTGTGCG",
+        "B0_MM_440.CTACTCGTACGCTGTAAACGGC",
+        "B0_MM_440.TCCGTGCATATTGACAAGTCCT",
+        "B0_MM_440.ATCCTGGACGCGACATCTGGAT",
+        "B0_MM_440.CTCCGATCTTATTTCGATGACG",
+        "B0_MM_440.TTGGACCCAGAGCCATGAGAAT",
+        "B0_MM_440.CTCGCTTAAACGCGTTAATATC",
+        "B0_MM_440.GTTGCATAGGGACGGCATAATG",
+        "B0_MM_440.AGTGGAGAGCTGCGTCGAGTAC",
+        "B0_MM_440.CACACACCGTCCCAAGATCGAC",
+        "B0_MM_440.GGTGAAGCCACGACATCTGGAT"
+      ],
+      "obsm_keys": [
+        "X_midas",
+        "X_umap",
+        "X_umap_midas",
+        "X_used",
+        "atac",
+        "rna"
+      ],
+      "obsm_shapes": {
+        "X_midas": [
+          1372580,
+          32
+        ],
+        "X_umap": [
+          1372580,
+          2
+        ],
+        "X_umap_midas": [
+          1372580,
+          2
+        ],
+        "X_used": [
+          1372580,
+          32
+        ],
+        "atac": [
+          1372580
+        ],
+        "rna": [
+          1372580
+        ]
+      },
+      "mod_keys": [
+        "atac",
+        "rna"
+      ],
+      "mod_obsm_keys": {
+        "atac": [],
+        "rna": [
+          "X_pca"
+        ]
+      },
+      "embedding_source": "mdata.obsm[\"X_umap\"]"
+    },
+    "tmp_subset_report": {
+      "subset_rows": 182,
+      "tmp_rows": 1372580,
+      "tmp_subset_id_unique": 182,
+      "conflicting_subset_counts_by_field": {
+        "DONOR_ID": 0,
+        "RL6": 1,
+        "RL_5": 8,
+        "RL_4": 15,
+        "RL3_2": 15,
+        "RL3_1": 24,
+        "RL_3": 21,
+        "RL_2": 15,
+        "C_NAME": 24,
+        "FUNCTION": 24,
+        "SUB_REGION_PRECISE": 28,
+        "REGION_CLASS": 0,
+        "REGION_SPECIFIC": 0,
+        "REGION_L4": 1,
+        "REGION_L1": 1,
+        "REGION_L2": 1,
+        "REGION_L3": 1,
+        "FUNCTION_L1": 1,
+        "UNIQUE_ID": 35,
+        "ORDER_ID": 35,
+        "L1_CELL_TYPE_NEW": 182
+      }
+    }
+  },
+  "astrocytes": {
+    "rds": "/share/home/fxl/project/Atlas_1230/fc_feature_mdata/Astrocytes/Astrocytes_0608_rna_atac.rds",
+    "reduction": "midas.umap",
+    "rds_cells": 147667,
+    "astro_meta_cells": 147667,
+    "matched": 147667,
+    "unmatched": 0,
+    "celltype_column": "celltype_astro_my",
+    "celltype_counts": {
+      "Vascular-associated astrocytes": 55340,
+      "Reactive astrocytes": 38652,
+      "Homeostatic astrocytes": 36864,
+      "Inflammatory reactive astrocytes": 10525,
+      "Stress-response astrocytes": 3687,
+      "Bergmann glia": 2599
+    },
+    "embedding_shape": [
+      147667,
+      2
+    ],
+    "embedding_min": [
+      -15.844608306884766,
+      -6.01250696182251
+    ],
+    "embedding_max": [
+      8.525918006896973,
+      8.515826225280762
+    ],
+    "embedding_nan_count": 0,
+    "embedding_inf_count": 0,
+    "old_npz_keys": [
+      "embedding"
+    ],
+    "final_embedding": "/share/home/fxl/project/Atlas_1230/web_可视化/embedding/Astrocytes_0608_rna_atac_midas_umap_embedding_umap.npz",
+    "final_meta": "/share/home/fxl/project/Atlas_1230/web_可视化/meta/Astrocytes_0525_drop_meta_all_new.txt",
+    "alignment_percent": 100.0
+  }
+}

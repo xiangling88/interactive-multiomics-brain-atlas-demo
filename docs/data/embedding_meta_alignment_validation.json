@@ -1,0 +1,26 @@
+{
+  "whole_atlas": {
+    "cells": 1372580,
+    "embedding_shape": [
+      1372580,
+      2
+    ],
+    "meta_cells": 1372580,
+    "npz_keys": [
+      "embedding"
+    ],
+    "alignment_percent": 100.0
+  },
+  "astrocytes": {
+    "cells": 147667,
+    "embedding_shape": [
+      147667,
+      2
+    ],
+    "meta_cells": 147667,
+    "npz_keys": [
+      "embedding"
+    ],
+    "alignment_percent": 100.0
+  }
+}
